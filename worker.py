@@ -4,10 +4,18 @@ from urllib.parse import urlparse, parse_qs
 from db_manager import DatabaseManager
 import controllers
 
+_db_initialized = False
+
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        global _db_initialized
         db = DatabaseManager(self.env)
-        await db.init_db()
+        if not _db_initialized:
+            try:
+                await db.init_db()
+                _db_initialized = True
+            except Exception as e:
+                print(f"Database initialization error: {e}")
 
         url = urlparse(request.url)
         path = url.path

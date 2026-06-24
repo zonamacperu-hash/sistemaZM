@@ -59,6 +59,13 @@ class DatabaseManager:
             return [dict(row) for row in rows]
 
     async def init_db(self):
+        # Quick check if database is already initialized
+        try:
+            await self.query("SELECT 1 FROM configuracion LIMIT 1")
+            return
+        except Exception:
+            pass
+
         # Create all tables in proper order (dependencies first)
         queries = [
             """
