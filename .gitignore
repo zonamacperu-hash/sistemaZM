@@ -1,0 +1,22 @@
+# Databases
+*.db
+*.db-journal
+
+# Environments / Config
+*.env
+local.env
+.env*
+
+# macOS System Files
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Editor configs / caches
+.vscode/
+.idea/
+.antigravity/

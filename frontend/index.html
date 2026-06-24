@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zona Mac Peru - Sistema de Gestión</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- ChartJS -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <!-- APP CONTAINER -->
+    <div class="app-container">
+        
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <img src="logo.jpg" alt="Logo Zona Mac Peru" class="sidebar-logo-img">
+                <div class="logo-text">
+                    <span class="brand-name">Zona Mac</span>
+                    <span class="brand-sub">PERU</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-item active" data-view="dashboard">
+                    <i class="fa-solid fa-chart-pie"></i> <span>Dashboard</span>
+                </a>
+                <a href="#pos" class="nav-item" data-view="pos">
+                    <i class="fa-solid fa-cash-register"></i> <span>Punto de Venta (POS)</span>
+                </a>
+                <a href="#reparaciones" class="nav-item" data-view="reparaciones">
+                    <i class="fa-solid fa-screwdriver-wrench"></i> <span>Soporte Técnico</span>
+                </a>
+                <a href="#inventario" class="nav-item" data-view="inventario">
+                    <i class="fa-solid fa-boxes-stacked"></i> <span>Inventario</span>
+                </a>
+                <a href="#contactos" class="nav-item" data-view="contactos">
+                    <i class="fa-solid fa-address-book"></i> <span>Contactos (Directorio)</span>
+                </a>
+                <a href="#prestamos" class="nav-item" data-view="prestamos">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i> <span>Préstamos / Repuestos</span>
+                </a>
+                <a href="#creditos" class="nav-item" data-view="creditos">
+                    <i class="fa-solid fa-credit-card"></i> <span>Créditos y Cuentas</span>
+                </a>
+                <a href="#cotizaciones" class="nav-item" data-view="cotizaciones">
+                    <i class="fa-solid fa-file-invoice-dollar"></i> <span>Cotizaciones</span>
+                </a>
+                <a href="#historial-comercial" class="nav-item" data-view="historial-comercial">
+                    <i class="fa-solid fa-clock-rotate-left"></i> <span>Historial Compras/Ventas</span>
+                </a>
+                <a href="#configuracion" class="nav-item" data-view="configuracion">
+                    <i class="fa-solid fa-sliders"></i> <span>Configuración</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <p>Miraflores, Lima</p>
+                <span class="version">v1.2.0</span>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT AREA -->
+        <main class="main-content">
+            
+            <!-- HEADER / TOPBAR -->
+            <header class="topbar">
+                <div class="topbar-search">
+                    <h2 id="view-title">Dashboard</h2>
+                </div>
+                <div class="topbar-actions">
+                    <!-- Exchange Rate Badge -->
+                    <div class="rate-badge">
+                        <span class="rate-label">TC Compra (USD/PEN):</span>
+                        <span class="rate-value" id="topbar-exchange-rate">S/ 3.75</span>
+                    </div>
+
+                    <!-- Dark/Light Theme Switcher -->
+                    <button class="theme-toggle" id="theme-toggle-btn" title="Alternar Modo Oscuro / Claro">
+                        <i class="fa-solid fa-sun icon-sun"></i>
+                        <i class="fa-solid fa-moon icon-moon"></i>
+                    </button>
+                    
+                    <div class="profile-badge">
+                        <div class="avatar"><i class="fa-solid fa-user-tie"></i></div>
+                        <div class="profile-info">
+                            <span class="profile-name">Administrador</span>
+                            <span class="profile-role">Zona Mac</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- DYNAMIC VIEW CONTAINER -->
+            <div class="view-viewport" id="viewport">
+                <!-- Views will be injected here via JavaScript -->
+            </div>
+        </main>
+    </div>
+
+    <!-- GENERAL MODAL CONTAINER -->
+    <div class="modal-overlay" id="general-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modal-title">Título del Modal</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Form content will be loaded here dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- PRINT PREVIEW CONTAINER (Hidden from screen by default, shown during print media) -->
+    <div id="print-area" class="print-only">
+        <!-- Print templates will be rendered here -->
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
