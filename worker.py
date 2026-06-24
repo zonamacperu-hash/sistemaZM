@@ -9,6 +9,29 @@ _db_initialized = False
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         global _db_initialized
+
+        cors_headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+
+        if request.method == "OPTIONS":
+            return Response("", status=200, headers=cors_headers)
+
+        def json_response(status, payload):
+            headers = {"Content-Type": "application/json; charset=utf-8"}
+            headers.update(cors_headers)
+            return Response(json.dumps(payload), status=status, headers=headers)
+
+        # Verificar si D1 binding está disponible
+        has_db = hasattr(self, 'env') and self.env is not None and hasattr(self.env, 'DB') and self.env.DB is not None
+        if not has_db:
+            return json_response(500, {
+                "success": False,
+                "error": "Error de Configuración: El binding de base de datos D1 'DB' no está disponible o no está configurado."
+            })
+
         db = DatabaseManager(self.env)
         if not _db_initialized:
             try:
@@ -21,20 +44,6 @@ class Default(WorkerEntrypoint):
         path = url.path
         query = parse_qs(url.query)
         method = request.method
-
-        cors_headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
-
-        if method == "OPTIONS":
-            return Response("", status=200, headers=cors_headers)
-
-        def json_response(status, payload):
-            headers = {"Content-Type": "application/json; charset=utf-8"}
-            headers.update(cors_headers)
-            return Response(json.dumps(payload), status=status, headers=headers)
 
         try:
             if method == "GET":

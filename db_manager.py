@@ -259,49 +259,50 @@ class DatabaseManager:
             );
             """
         ]
-
-        # Execute table creation queries sequentially
-        for q in queries:
-            await self.execute(q)
-
-        # Self-healing migrations for existing tables
+        # Execute table creation queries sequentially and swallow exceptions to prevent crashing the worker
         try:
-            await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'")
-        except Exception:
-            pass
-        try:
-            await self.execute("ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0")
-        except Exception:
-            pass
-        try:
-            await self.execute("ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'")
-        except Exception:
-            pass
+            for q in queries:
+                await self.execute(q)
 
-        # Seed initial categories if table is empty
-        cat_count = await self.query("SELECT COUNT(*) as count FROM categorias")
-        if cat_count[0]['count'] == 0:
-            default_categories = ['iPhone', 'Mac', 'iPad', 'AirPods', 'Apple Watch', 'Accesorios Apple', 'Genéricos', 'Repuestos', 'Otros']
-            for cat in default_categories:
-                await self.execute("INSERT OR IGNORE INTO categorias (nombre) VALUES (?)", [cat])
+            # Self-healing migrations for existing tables
+            try:
+                await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'")
+            except Exception:
+                pass
+            try:
+                await self.execute("ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                await self.execute("ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'")
+            except Exception:
+                pass
 
-        # Seed initial configuration if table is empty
-        config_count = await self.query("SELECT COUNT(*) as count FROM configuracion")
-        if config_count[0]['count'] == 0:
-            default_config = {
-                'business_name': 'Zona Mac Peru',
-                'business_address': 'Av. Petit Thouars 5356 Miraflores, Lima',
-                'business_ruc': '10446507309',
-                'business_phone': '+51 941 995 237',
-                'social_instagram': 'https://instagram.com/zonamacperu',
-                'social_facebook': 'https://facebook.com/zonamacperu',
-                'google_business_url': 'https://g.page/zonamacperu',
-                'logo_url': 'logo.jpg',
-                'exchange_rate': '3.75'
-            }
-            for k, v in default_config.items():
-                await self.execute("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)", [k, v])
+            # Seed initial categories if table is empty
+            cat_count = await self.query("SELECT COUNT(*) as count FROM categorias")
+            if cat_count[0]['count'] == 0:
+                default_categories = ['iPhone', 'Mac', 'iPad', 'AirPods', 'Apple Watch', 'Accesorios Apple', 'Genéricos', 'Repuestos', 'Otros']
+                for cat in default_categories:
+                    await self.execute("INSERT OR IGNORE INTO categorias (nombre) VALUES (?)", [cat])
 
+            # Seed initial configuration if table is empty
+            config_count = await self.query("SELECT COUNT(*) as count FROM configuracion")
+            if config_count[0]['count'] == 0:
+                default_config = {
+                    'business_name': 'Zona Mac Peru',
+                    'business_address': 'Av. Petit Thouars 5356 Miraflores, Lima',
+                    'business_ruc': '10446507309',
+                    'business_phone': '+51 941 995 237',
+                    'social_instagram': 'https://instagram.com/zonamacperu',
+                    'social_facebook': 'https://facebook.com/zonamacperu',
+                    'google_business_url': 'https://g.page/zonamacperu',
+                    'logo_url': 'logo.jpg',
+                    'exchange_rate': '3.75'
+                }
+                for k, v in default_config.items():
+                    await self.execute("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)", [k, v])
+        except Exception as e:
+            print(f"Error silenciado durante init_db: {e}")
     async def reset_system(self):
         tables_to_drop = [
             "abonos_clientes", "creditos_clientes",
