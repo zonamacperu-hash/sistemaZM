@@ -181,6 +181,8 @@ class APIRequestHandler(BaseHTTPRequestHandler):
             return
 
         file_path = os.path.join('frontend', normalized_path)
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            file_path = normalized_path
 
         if os.path.exists(file_path) and os.path.isfile(file_path):
             content_type = 'text/plain'
