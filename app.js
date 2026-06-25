@@ -121,6 +121,7 @@ const routes = {
     'creditos': renderCreditos,
     'cotizaciones': renderCotizaciones,
     'historial-comercial': renderHistorialComercial,
+    'reportes': renderReportes,
     'configuracion': renderConfiguracion
 };
 
@@ -146,6 +147,7 @@ function handleRouting() {
         'creditos': 'Control de Créditos y Financiamiento',
         'cotizaciones': 'Generador Independiente de Cotizaciones',
         'historial-comercial': 'Historial de Compras y Ventas',
+        'reportes': 'Reportes y Auditoría Financiera',
         'configuracion': 'Configuración del Sistema'
     };
     document.getElementById('view-title').innerText = titleMap[hash] || 'Zona Mac Peru';
@@ -4123,6 +4125,462 @@ async function printPurchaseA4(purchaseId) {
         console.error(e);
         showNotification("Error al previsualizar la compra.", 'error');
     }
+}
+
+// ==========================================
+// RENDER VIEW: REPORTES Y AUDITORÍA
+// ==========================================
+
+async function renderReportes() {
+    const container = document.getElementById('viewport');
+    container.innerHTML = `
+        <div class="card">
+            <div class="card-title">
+                <span>Filtro de Auditoría y Reportes</span>
+            </div>
+            <div class="form-row" style="align-items: flex-end; gap: 16px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="rep-start-date">Fecha Desde</label>
+                    <input type="date" id="rep-start-date" class="form-control">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="rep-end-date">Fecha Hasta</label>
+                    <input type="date" id="rep-end-date" class="form-control">
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="generateManualReport()"><i class="fa-solid fa-calculator"></i> Calcular Rango</button>
+                    <button class="btn btn-secondary" onclick="presetReportDates('hoy')">Hoy</button>
+                    <button class="btn btn-secondary" onclick="presetReportDates('semana')">Semana</button>
+                    <button class="btn btn-secondary" onclick="presetReportDates('mes')">Mes Actual</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="live-report-container" class="card" style="display: none;">
+            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+                <span>Caja en Vivo: <span id="live-report-range" style="color: var(--accent-color);"></span></span>
+                <div style="display: flex; gap: 8px;">
+                    <button id="btn-save-report" class="btn btn-success btn-xs" onclick="saveManualReport()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cierre</button>
+                    <button id="btn-print-report" class="btn btn-secondary btn-xs" onclick="printReportDataDirect()"><i class="fa-solid fa-print"></i> Imprimir</button>
+                </div>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card" style="border-left: 4px solid var(--success-color);">
+                    <div class="metric-icon" style="color: var(--success-color); background-color: rgba(48, 209, 88, 0.1);"><i class="fa-solid fa-circle-arrow-up"></i></div>
+                    <div class="metric-info">
+                        <span class="metric-label">Ingresos Totales</span>
+                        <span class="metric-value" id="rep-ingresos-pen">S/ 0.00</span>
+                        <span class="metric-sub" id="rep-ingresos-usd">$0.00 USD</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card" style="border-left: 4px solid var(--danger-color);">
+                    <div class="metric-icon" style="color: var(--danger-color); background-color: rgba(255, 69, 58, 0.1);"><i class="fa-solid fa-circle-arrow-down"></i></div>
+                    <div class="metric-info">
+                        <span class="metric-label">Egresos Totales</span>
+                        <span class="metric-value" id="rep-egresos-pen">S/ 0.00</span>
+                        <span class="metric-sub" id="rep-egresos-usd">$0.00 USD</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card" style="border-left: 4px solid var(--accent-color);">
+                    <div class="metric-icon" style="color: var(--accent-color); background-color: rgba(10, 132, 255, 0.1);"><i class="fa-solid fa-scale-balanced"></i></div>
+                    <div class="metric-info">
+                        <span class="metric-label">Ganancia Neta</span>
+                        <span class="metric-value" id="rep-ganancia-pen">S/ 0.00</span>
+                        <span class="metric-sub" id="rep-ganancia-usd">$0.00 USD</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                <span>Historial de Reportes Automáticos y Cierres Guardados</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table-main">
+                    <thead>
+                        <tr>
+                            <th>Fecha Generación</th>
+                            <th>Tipo Reporte</th>
+                            <th>Rango de Fechas</th>
+                            <th>Ingresos (PEN / USD)</th>
+                            <th>Egresos (PEN / USD)</th>
+                            <th>Ganancia Neta (PEN / USD)</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reports-history-tbody">
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Cargando historial...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Set default dates to today
+    const todayStr = getLocalDateString(new Date());
+    document.getElementById('rep-start-date').value = todayStr;
+    document.getElementById('rep-end-date').value = todayStr;
+
+    // Load History
+    await loadReportsHistory();
+}
+
+async function loadReportsHistory() {
+    const tbody = document.getElementById('reports-history-tbody');
+    try {
+        const reports = await fetchAPI('/api/reports');
+        if (reports.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No se registran cierres de reportes históricos.</td></tr>`;
+            return;
+        }
+
+        const formatReportDate = (dateStr) => {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            return dateStr;
+        };
+
+        const formatTimestamp = (tsStr) => {
+            if (!tsStr) return 'No registra';
+            try {
+                const d = new Date(tsStr);
+                if (isNaN(d.getTime())) return tsStr;
+                const pad = (n) => String(n).padStart(2, '0');
+                return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            } catch(e) {
+                return tsStr;
+            }
+        };
+
+        tbody.innerHTML = reports.map(rep => {
+            const dataAttr = JSON.stringify(rep).replace(/"/g, '&quot;');
+            
+            let tipoBadge = '';
+            if (rep.tipo === 'Semanal') {
+                tipoBadge = `<span class="badge" style="background-color: rgba(10, 132, 255, 0.15); color: var(--accent-color); font-weight: 700;">Semanal</span>`;
+            } else if (rep.tipo === 'Mensual') {
+                tipoBadge = `<span class="badge" style="background-color: rgba(255, 159, 10, 0.15); color: var(--warning-color); font-weight: 700;">Mensual</span>`;
+            } else if (rep.tipo === 'Anual') {
+                tipoBadge = `<span class="badge" style="background-color: rgba(191, 90, 242, 0.15); color: #bf5af2; font-weight: 700;">Anual</span>`;
+            } else {
+                tipoBadge = `<span class="badge" style="background-color: rgba(48, 209, 88, 0.15); color: var(--success-color); font-weight: 700;">Manual</span>`;
+            }
+
+            return `
+                <tr>
+                    <td>${formatTimestamp(rep.fecha_generacion)}</td>
+                    <td>${tipoBadge}</td>
+                    <td><strong>${formatReportDate(rep.fecha_inicio)}</strong> al <strong>${formatReportDate(rep.fecha_fin)}</strong></td>
+                    <td>
+                        <span style="display: block; font-weight: 500;">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</span>
+                        <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</small>
+                    </td>
+                    <td>
+                        <span style="display: block; font-weight: 500; color: var(--danger-color);">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</span>
+                        <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</small>
+                    </td>
+                    <td>
+                        <strong style="display: block; color: var(--accent-color);">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</strong>
+                        <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</small>
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-xs" onclick="showReportPreviewModal(${dataAttr})">
+                                <i class="fa-solid fa-eye"></i> Previsualizar
+                            </button>
+                            <button class="btn btn-primary btn-xs" onclick="printFinancialReport(${dataAttr})">
+                                <i class="fa-solid fa-print"></i> Imprimir
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch(e) {
+        console.error(e);
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--danger-color);">Error al cargar historial de reportes.</td></tr>`;
+    }
+}
+
+function getLocalDateString(date = new Date()) {
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - (offset*60*1000));
+    return localDate.toISOString().split('T')[0];
+}
+
+function presetReportDates(preset) {
+    const today = new Date();
+    let start, end;
+    if (preset === 'hoy') {
+        start = today;
+        end = today;
+    } else if (preset === 'semana') {
+        const dayOfWeek = today.getDay(); // 0 is Sunday, 1 is Monday, etc.
+        const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        start = new Date(new Date().setDate(diffToMonday));
+        end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+    } else if (preset === 'mes') {
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    }
+    
+    document.getElementById('rep-start-date').value = getLocalDateString(start);
+    document.getElementById('rep-end-date').value = getLocalDateString(end);
+    generateManualReport();
+}
+
+async function generateManualReport() {
+    const startDate = document.getElementById('rep-start-date').value;
+    const endDate = document.getElementById('rep-end-date').value;
+    
+    if (!startDate || !endDate) {
+        showNotification("Seleccione un rango de fechas válido.", "error");
+        return;
+    }
+
+    try {
+        const rep = await fetchAPI(`/api/reports/generate?start_date=${startDate}&end_date=${endDate}`);
+        appState.currentReport = rep;
+        
+        document.getElementById('rep-ingresos-pen').innerText = `S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}`;
+        document.getElementById('rep-ingresos-usd').innerText = `$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD`;
+        document.getElementById('rep-egresos-pen').innerText = `S/ ${parseFloat(rep.egresos_pen).toFixed(2)}`;
+        document.getElementById('rep-egresos-usd').innerText = `$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD`;
+        document.getElementById('rep-ganancia-pen').innerText = `S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}`;
+        document.getElementById('rep-ganancia-usd').innerText = `$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD`;
+        
+        const formatReportDate = (dateStr) => {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            return dateStr;
+        };
+
+        document.getElementById('live-report-range').innerText = `${formatReportDate(startDate)} al ${formatReportDate(endDate)}`;
+        
+        // Show container and restore save button
+        document.getElementById('btn-save-report').style.display = 'inline-flex';
+        document.getElementById('live-report-container').style.display = 'block';
+        showNotification("Reporte calculado correctamente.", "success");
+    } catch(e) {
+        console.error(e);
+        showNotification("Error al calcular el reporte.", "error");
+    }
+}
+
+async function saveManualReport() {
+    if (!appState.currentReport) {
+        showNotification("No hay reporte calculado para guardar.", "error");
+        return;
+    }
+
+    try {
+        const res = await fetchAPI('/api/reports/save', {
+            method: 'POST',
+            body: JSON.stringify({
+                fecha_inicio: appState.currentReport.fecha_inicio,
+                fecha_fin: appState.currentReport.fecha_fin,
+                ingresos_pen: appState.currentReport.ingresos_pen,
+                ingresos_usd: appState.currentReport.ingresos_usd,
+                egresos_pen: appState.currentReport.egresos_pen,
+                egresos_usd: appState.currentReport.egresos_usd,
+                ganancia_pen: appState.currentReport.ganancia_pen,
+                ganancia_usd: appState.currentReport.ganancia_usd
+            })
+        });
+
+        if (res.error) {
+            showNotification(res.error, "error");
+        } else {
+            showNotification("Cierre manual guardado en el historial.", "success");
+            document.getElementById('btn-save-report').style.display = 'none';
+            await loadReportsHistory();
+        }
+    } catch(e) {
+        console.error(e);
+        showNotification("Error al guardar el reporte manual.", "error");
+    }
+}
+
+function printReportDataDirect() {
+    if (!appState.currentReport) {
+        showNotification("No hay reporte calculado para imprimir.", "error");
+        return;
+    }
+    const reportToPrint = {
+        ...appState.currentReport,
+        tipo: 'Manual',
+        fecha_generacion: new Date().toLocaleString()
+    };
+    printFinancialReport(reportToPrint);
+}
+
+function showReportPreviewModal(rep) {
+    const formatReportDate = (dateStr) => {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    };
+    
+    const contentHTML = `
+        <div class="report-preview-card" style="padding: 10px; color: var(--text-primary);">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h3 style="font-family: var(--font-heading); font-size: 20px; color: var(--accent-color); margin-bottom: 4px;">Vista Previa de Reporte</h3>
+                <span class="badge badge-activo" style="font-size: 12px; padding: 6px 12px;">${rep.tipo}</span>
+            </div>
+            
+            <div class="form-row" style="margin-bottom: 20px; background-color: var(--bg-input); padding: 12px; border-radius: var(--border-radius-sm);">
+                <div>
+                    <span style="font-size: 12px; color: var(--text-secondary); display: block;">Periodo</span>
+                    <strong>${formatReportDate(rep.fecha_inicio)} - ${formatReportDate(rep.fecha_fin)}</strong>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: var(--text-secondary); display: block;">Generado el</span>
+                    <strong>${rep.fecha_generacion || new Date().toLocaleString()}</strong>
+                </div>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--success-color);">
+                    <span><strong style="color: var(--success-color);">Ingresos Totales</strong></span>
+                    <div style="text-align: right;">
+                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--success-color);">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</span>
+                        <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</small>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--danger-color);">
+                    <span><strong style="color: var(--danger-color);">Egresos Totales</strong></span>
+                    <div style="text-align: right;">
+                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--danger-color);">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</span>
+                        <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</small>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--accent-color);">
+                    <span><strong style="color: var(--accent-color);">Ganancia Neta</strong></span>
+                    <div style="text-align: right;">
+                        <span style="display: block; font-weight: bold; font-size: 16px; color: var(--accent-color);">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</span>
+                        <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>
+                <button class="btn btn-primary" onclick="closeModal(); printFinancialReport(${JSON.stringify(rep).replace(/"/g, '&quot;')})">
+                    <i class="fa-solid fa-print"></i> Imprimir / PDF
+                </button>
+            </div>
+        </div>
+    `;
+    openModal(`Reporte Financiero (${rep.tipo})`, contentHTML);
+}
+
+function printFinancialReport(rep) {
+    const formatReportDate = (dateStr) => {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    };
+
+    const logoPath = 'logo.jpg';
+    const printArea = document.getElementById('print-area');
+    
+    printArea.innerHTML = `
+        <div class="a4-container">
+            <div class="a4-header">
+                <div class="a4-company-info">
+                    <img src="${logoPath}" class="a4-logo" alt="Logo Zona Mac Peru">
+                    <div class="a4-company-details">
+                        <h2>Zona Mac Peru</h2>
+                        <p>RUC: 10446507309</p>
+                        <p>Dirección: Av. Petit Thouars 5356 Miraflores, Lima</p>
+                        <p>Teléfono: +51 941 995 237</p>
+                    </div>
+                </div>
+                <div class="a4-comprobante-box" style="border-color: #000000;">
+                    <h3>Zona Mac Peru</h3>
+                    <div class="doc-type">REPORTE FINANCIERO</div>
+                    <div class="doc-number">${rep.tipo}</div>
+                </div>
+            </div>
+
+            <div class="a4-report-title">
+                AUDITORÍA DE CAJA Y RESULTADOS
+            </div>
+
+            <div class="a4-metadata-section" style="grid-template-columns: 1fr 1fr; margin-bottom: 10px;">
+                <div class="a4-metadata-col">
+                    <h4>Periodo de Consulta</h4>
+                    <p><strong>Desde:</strong> ${formatReportDate(rep.fecha_inicio)}</p>
+                    <p><strong>Hasta:</strong> ${formatReportDate(rep.fecha_fin)}</p>
+                </div>
+                <div class="a4-metadata-col">
+                    <h4>Generación del Reporte</h4>
+                    <p><strong>Tipo:</strong> Reporte ${rep.tipo}</p>
+                    <p><strong>Fecha Emisión:</strong> ${rep.fecha_generacion || new Date().toLocaleString()}</p>
+                </div>
+            </div>
+
+            <div class="a4-report-grid">
+                <div class="a4-report-card">
+                    <div class="a4-report-card-label">Total Ingresos</div>
+                    <div class="a4-report-card-val" style="color: #009f7f;">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-sub">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</div>
+                </div>
+                <div class="a4-report-card">
+                    <div class="a4-report-card-label">Total Egresos</div>
+                    <div class="a4-report-card-val" style="color: #ff453a;">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-sub">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</div>
+                </div>
+                <div class="a4-report-card" style="border-color: #0071e3; background-color: #fafaff;">
+                    <div class="a4-report-card-label" style="color: #0071e3;">Ganancia Neta</div>
+                    <div class="a4-report-card-val" style="color: #0071e3;">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-sub" style="color: #0071e3;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 15px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 16px; background-color: #fcfcfc;">
+                <h4 style="margin: 0 0 8px 0; font-size: 10px; color: #475569; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">Concepto de Cálculos y Reglas de Negocio</h4>
+                <p style="font-size: 9px; line-height: 1.4; color: #64748b; margin: 0;">
+                    1. <strong>Ingresos:</strong> Suma de las ventas totales realizadas más los cobros/precios de servicios técnicos terminados y entregados en taller.<br>
+                    2. <strong>Egresos:</strong> Suma de las compras totales registradas (proveedores y reposición de inventario) más el costo estimado de los repuestos y mano de obra imputados a los servicios técnicos entregados.<br>
+                    3. <strong>Ganancia Neta:</strong> Excedente financiero resultante de restar los Egresos del total de Ingresos (Margen de Contribución Neto).
+                </p>
+            </div>
+
+            <div class="a4-signatures-block" style="margin-top: 80px;">
+                <div class="a4-signature-line">
+                    Firma del Responsable
+                </div>
+                <div class="a4-signature-line">
+                    Sello de Auditoría Interna
+                </div>
+            </div>
+
+            <div class="a4-terms-section" style="margin-top: 50px;">
+                Representación de reporte financiero - Zona Mac Peru.<br>
+                Cualquier discrepancia o auditoría de caja debe ser contrastada con el sistema transaccional del día de hoy.
+            </div>
+        </div>
+    `;
+    window.print();
 }
 
 window.addEventListener('DOMContentLoaded', async () => {

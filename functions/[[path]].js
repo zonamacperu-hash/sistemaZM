@@ -177,6 +177,19 @@ export async function onRequest(context) {
         `).all();
         return jsonResponse(200, results);
       }
+
+      if (path === '/api/reports') {
+        await lazyGenerarReportes(env.DB);
+        const { results } = await env.DB.prepare("SELECT * FROM reportes_financieros ORDER BY fecha_inicio DESC").all();
+        return jsonResponse(200, results);
+      }
+
+      if (path === '/api/reports/generate') {
+        const start = query.start_date;
+        const end = query.end_date;
+        const result = await calcularReporte(env.DB, start, end);
+        return jsonResponse(200, result);
+      }
       
       return jsonResponse(404, { success: false, error: "Endpoint no encontrado" });
 
@@ -293,12 +306,31 @@ export async function onRequest(context) {
         const result = await createCompra(env.DB, data);
         return jsonResponse(200, result);
       }
+
+      if (path === '/api/reports/save') {
+        const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        await env.DB.prepare(`
+          INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+          VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          data.fecha_inicio,
+          data.fecha_fin,
+          parseFloat(data.ingresos_pen || 0.0),
+          parseFloat(data.ingresos_usd || 0.0),
+          parseFloat(data.egresos_pen || 0.0),
+          parseFloat(data.egresos_usd || 0.0),
+          parseFloat(data.ganancia_pen || 0.0),
+          parseFloat(data.ganancia_usd || 0.0),
+          now
+        ).run();
+        return jsonResponse(200, { success: true, message: "Reporte guardado exitosamente" });
+      }
       
       if (path === '/api/reset') {
         const tables = [
           "abonos_clientes", "creditos_clientes", "abonos_proveedores", "creditos_proveedores",
           "prestamos_repuestos", "historial_ordenes", "ordenes_servicio", "productos",
-          "contactos", "categorias", "ventas", "compras", "cotizaciones", "configuracion"
+          "contactos", "categorias", "ventas", "compras", "cotizaciones", "configuracion", "reportes_financieros"
         ];
         for (const t of tables) {
           try {
@@ -995,6 +1027,19 @@ async function initDb(db) {
         total_pen REAL DEFAULT 0.0,
         items_json TEXT NOT NULL,
         estado TEXT DEFAULT 'Pendiente'
+    );`,
+    `CREATE TABLE IF NOT EXISTS reportes_financieros (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        fecha_inicio TEXT NOT NULL,
+        fecha_fin TEXT NOT NULL,
+        ingresos_pen REAL DEFAULT 0.0,
+        ingresos_usd REAL DEFAULT 0.0,
+        egresos_pen REAL DEFAULT 0.0,
+        egresos_usd REAL DEFAULT 0.0,
+        ganancia_pen REAL DEFAULT 0.0,
+        ganancia_usd REAL DEFAULT 0.0,
+        fecha_generacion TEXT NOT NULL
     );`
   ];
 
@@ -1511,4 +1556,121 @@ async function netCredits(db, contacto_id) {
     message: `Neteo de créditos procesado con éxito. Se compensaron S/ ${net_pen.toFixed(2)} y $ ${net_usd.toFixed(2)} mutuos.`
   };
 }
+
+async function calcularReporte(db, start_date, end_date) {
+  // 1. Ventas
+  const ventas = await db.prepare(
+    "SELECT SUM(total_pen) as pen, SUM(total_usd) as usd FROM ventas WHERE date(fecha) >= date(?) AND date(fecha) <= date(?)"
+  ).bind(start_date, end_date).first();
+  const v_pen = ventas?.pen || 0.0;
+  const v_usd = ventas?.usd || 0.0;
+
+  // 2. Soporte Técnico - Ingresos (precio_venta de ordenes entregadas)
+  const soporteIng = await db.prepare(
+    "SELECT SUM(precio_venta_pen) as pen, SUM(precio_venta_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
+  ).bind(start_date, end_date).first();
+  const s_ing_pen = soporteIng?.pen || 0.0;
+  const s_ing_usd = soporteIng?.usd || 0.0;
+
+  // 3. Compras
+  const compras = await db.prepare(
+    "SELECT SUM(total_pen) as pen, SUM(total_usd) as usd FROM compras WHERE date(fecha) >= date(?) AND date(fecha) <= date(?)"
+  ).bind(start_date, end_date).first();
+  const c_pen = compras?.pen || 0.0;
+  const c_usd = compras?.usd || 0.0;
+
+  // 4. Soporte Técnico - Egresos (costo_estimado de ordenes entregadas)
+  const soporteEgr = await db.prepare(
+    "SELECT SUM(costo_estimado_pen) as pen, SUM(costo_estimado_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
+  ).bind(start_date, end_date).first();
+  const s_egr_pen = soporteEgr?.pen || 0.0;
+  const s_egr_usd = soporteEgr?.usd || 0.0;
+
+  const ingresos_pen = v_pen + s_ing_pen;
+  const ingresos_usd = v_usd + s_ing_usd;
+  const egresos_pen = c_pen + s_egr_pen;
+  const egresos_usd = c_usd + s_egr_usd;
+  const ganancia_pen = ingresos_pen - egresos_pen;
+  const ganancia_usd = ingresos_usd - egresos_usd;
+
+  return {
+    fecha_inicio: start_date,
+    fecha_fin: end_date,
+    ingresos_pen: Math.round(ingresos_pen * 100) / 100,
+    ingresos_usd: Math.round(ingresos_usd * 100) / 100,
+    egresos_pen: Math.round(egresos_pen * 100) / 100,
+    egresos_usd: Math.round(egresos_usd * 100) / 100,
+    ganancia_pen: Math.round(ganancia_pen * 100) / 100,
+    ganancia_usd: Math.round(ganancia_usd * 100) / 100
+  };
+}
+
+async function lazyGenerarReportes(db) {
+  const today = new Date();
+  const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+  // 1. Reporte Semanal
+  const currentDay = today.getDay();
+  const isoWeekday = currentDay === 0 ? 6 : currentDay - 1;
+  const currentMonday = new Date(today);
+  currentMonday.setDate(today.getDate() - isoWeekday);
+  const prevMonday = new Date(currentMonday);
+  prevMonday.setDate(currentMonday.getDate() - 7);
+  const prevSunday = new Date(prevMonday);
+  prevSunday.setDate(prevMonday.getDate() + 6);
+
+  const pmStr = prevMonday.toISOString().split('T')[0];
+  const psStr = prevSunday.toISOString().split('T')[0];
+
+  const weeklyExists = await db.prepare(
+    "SELECT id FROM reportes_financieros WHERE tipo = 'Semanal' AND fecha_inicio = ?"
+  ).bind(pmStr).first();
+
+  if (!weeklyExists) {
+    const rep = await calcularReporte(db, pmStr, psStr);
+    await db.prepare(`
+      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+      VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(pmStr, psStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+  }
+
+  // 2. Reporte Mensual
+  const firstThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastPrevMonth = new Date(firstThisMonth);
+  lastPrevMonth.setDate(firstThisMonth.getDate() - 1);
+  const firstPrevMonth = new Date(lastPrevMonth.getFullYear(), lastPrevMonth.getMonth(), 1);
+
+  const fpmStr = firstPrevMonth.toISOString().split('T')[0];
+  const lpmStr = lastPrevMonth.toISOString().split('T')[0];
+
+  const monthlyExists = await db.prepare(
+    "SELECT id FROM reportes_financieros WHERE tipo = 'Mensual' AND fecha_inicio = ?"
+  ).bind(fpmStr).first();
+
+  if (!monthlyExists) {
+    const rep = await calcularReporte(db, fpmStr, lpmStr);
+    await db.prepare(`
+      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+      VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(fpmStr, lpmStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+  }
+
+  // 3. Reporte Anual
+  const prevYear = today.getFullYear() - 1;
+  const fpyStr = `${prevYear}-01-01`;
+  const lpyStr = `${prevYear}-12-31`;
+
+  const annualExists = await db.prepare(
+    "SELECT id FROM reportes_financieros WHERE tipo = 'Anual' AND fecha_inicio = ?"
+  ).bind(fpyStr).first();
+
+  if (!annualExists) {
+    const rep = await calcularReporte(db, fpyStr, lpyStr);
+    await db.prepare(`
+      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+      VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(fpyStr, lpyStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+  }
+}
+
 

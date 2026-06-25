@@ -1261,6 +1261,54 @@ body.dark-theme .icon-moon { display: none; }
         font-weight: 700;
         margin: 0;
     }
+
+    /* Print Layout for Financial Reports */
+    .a4-report-title {
+        font-size: 14px;
+        font-weight: 700;
+        text-align: center;
+        text-transform: uppercase;
+        margin: 15px 0 10px 0;
+        border-bottom: 2px solid #000000;
+        padding-bottom: 8px;
+        color: #000000 !important;
+        letter-spacing: 1px;
+    }
+    
+    .a4-report-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin: 15px 0;
+    }
+    
+    .a4-report-card {
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        padding: 12px;
+        text-align: center;
+        background-color: #fafafa;
+    }
+    
+    .a4-report-card-label {
+        font-size: 9px;
+        color: #555555;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    
+    .a4-report-card-val {
+        font-size: 14px;
+        font-weight: 700;
+        color: #000000;
+    }
+    
+    .a4-report-card-sub {
+        font-size: 10px;
+        color: #444444;
+        margin-top: 2px;
+    }
 }
 
 /* PAYMENT METHOD PILLS (POS Select alternative to avoid overflow) */
@@ -1303,5 +1351,14 @@ body.dark-theme .icon-moon { display: none; }
     border-color: var(--accent-color);
     color: #ffffff;
     box-shadow: 0 4px 12px rgba(10, 132, 255, 0.25);
+}
+
+/* ==========================================================================
+   REPORTES Y AUDITORÍA FINANCIALS
+   ========================================================================== */
+.report-preview-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 

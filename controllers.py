@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 # Helper to get current ISO timestamp
 def now_timestamp():
@@ -1324,8 +1324,135 @@ async def create_compra(db, data):
     )
     
     # Get last insert id
-    row = await db.query("SELECT last_insert_rowid() as id")
-    compra_id = row[0]['id']
-    
     return {"success": True, "message": "Compra registrada exitosamente", "compra_id": compra_id, "documento": doc_number}
+
+
+# ==========================================
+# 12. MÓDULO DE REPORTES Y AUDITORÍA
+# ==========================================
+
+async def calcular_reporte(db, start_date, end_date):
+    # 1. Ventas
+    ventas_res = await db.query(
+        "SELECT SUM(total_pen) as pen, SUM(total_usd) as usd FROM ventas WHERE date(fecha) >= date(?) AND date(fecha) <= date(?)",
+        [start_date, end_date]
+    )
+    v_pen = ventas_res[0]['pen'] or 0.0
+    v_usd = ventas_res[0]['usd'] or 0.0
+
+    # 2. Soporte Técnico - Ingresos (precio_venta de ordenes entregadas)
+    soporte_ing_res = await db.query(
+        "SELECT SUM(precio_venta_pen) as pen, SUM(precio_venta_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)",
+        [start_date, end_date]
+    )
+    s_ing_pen = soporte_ing_res[0]['pen'] or 0.0
+    s_ing_usd = soporte_ing_res[0]['usd'] or 0.0
+
+    # 3. Compras
+    compras_res = await db.query(
+        "SELECT SUM(total_pen) as pen, SUM(total_usd) as usd FROM compras WHERE date(fecha) >= date(?) AND date(fecha) <= date(?)",
+        [start_date, end_date]
+    )
+    c_pen = compras_res[0]['pen'] or 0.0
+    c_usd = compras_res[0]['usd'] or 0.0
+
+    # 4. Soporte Técnico - Egresos (costo_estimado de ordenes entregadas)
+    soporte_egr_res = await db.query(
+        "SELECT SUM(costo_estimado_pen) as pen, SUM(costo_estimado_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)",
+        [start_date, end_date]
+    )
+    s_egr_pen = soporte_egr_res[0]['pen'] or 0.0
+    s_egr_usd = soporte_egr_res[0]['usd'] or 0.0
+
+    # Totales
+    ingresos_pen = v_pen + s_ing_pen
+    ingresos_usd = v_usd + s_ing_usd
+    egresos_pen = c_pen + s_egr_pen
+    egresos_usd = c_usd + s_egr_usd
+    ganancia_pen = ingresos_pen - egresos_pen
+    ganancia_usd = ingresos_usd - egresos_usd
+
+    return {
+        "fecha_inicio": start_date,
+        "fecha_fin": end_date,
+        "ingresos_pen": round(ingresos_pen, 2),
+        "ingresos_usd": round(ingresos_usd, 2),
+        "egresos_pen": round(egresos_pen, 2),
+        "egresos_usd": round(egresos_usd, 2),
+        "ganancia_pen": round(ganancia_pen, 2),
+        "ganancia_usd": round(ganancia_usd, 2)
+    }
+
+async def list_reportes(db):
+    # Primero ejecuta el lazy checker para generar reportes pendientes
+    await lazy_generar_reportes(db)
+    return await db.query("SELECT * FROM reportes_financieros ORDER BY fecha_inicio DESC")
+
+async def lazy_generar_reportes(db):
+    today = date.today()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # 1. Reporte Semanal (Lunes a Domingo de la semana pasada)
+    current_monday = today - timedelta(days=today.weekday())
+    prev_monday = current_monday - timedelta(days=7)
+    prev_sunday = prev_monday + timedelta(days=6)
+    
+    pm_str = prev_monday.strftime('%Y-%m-%d')
+    ps_str = prev_sunday.strftime('%Y-%m-%d')
+
+    weekly_exists = await db.query(
+        "SELECT id FROM reportes_financieros WHERE tipo = 'Semanal' AND fecha_inicio = ?",
+        [pm_str]
+    )
+    if not weekly_exists:
+        rep = await calcular_reporte(db, pm_str, ps_str)
+        await db.execute(
+            """
+            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+            VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [pm_str, ps_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+        )
+
+    # 2. Reporte Mensual (Mes calendario anterior completo)
+    first_this_month = today.replace(day=1)
+    last_prev_month = first_this_month - timedelta(days=1)
+    first_prev_month = last_prev_month.replace(day=1)
+
+    fpm_str = first_prev_month.strftime('%Y-%m-%d')
+    lpm_str = last_prev_month.strftime('%Y-%m-%d')
+
+    monthly_exists = await db.query(
+        "SELECT id FROM reportes_financieros WHERE tipo = 'Mensual' AND fecha_inicio = ?",
+        [fpm_str]
+    )
+    if not monthly_exists:
+        rep = await calcular_reporte(db, fpm_str, lpm_str)
+        await db.execute(
+            """
+            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+            VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [fpm_str, lpm_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+        )
+
+    # 3. Reporte Anual (Año calendario anterior completo)
+    prev_year = today.year - 1
+    fpy_str = f"{prev_year}-01-01"
+    lpy_str = f"{prev_year}-12-31"
+
+    annual_exists = await db.query(
+        "SELECT id FROM reportes_financieros WHERE tipo = 'Anual' AND fecha_inicio = ?",
+        [fpy_str]
+    )
+    if not annual_exists:
+        rep = await calcular_reporte(db, fpy_str, lpy_str)
+        await db.execute(
+            """
+            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+            VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [fpy_str, lpy_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+        )
+
 

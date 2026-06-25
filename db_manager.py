@@ -61,7 +61,7 @@ class DatabaseManager:
     async def init_db(self):
         # Quick check if database is already initialized
         try:
-            await self.query("SELECT 1 FROM configuracion LIMIT 1")
+            await self.query("SELECT 1 FROM reportes_financieros LIMIT 1")
             return
         except Exception:
             pass
@@ -257,6 +257,21 @@ class DatabaseManager:
                 items_json TEXT NOT NULL,
                 estado TEXT DEFAULT 'Pendiente'
             );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS reportes_financieros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo TEXT NOT NULL,
+                fecha_inicio TEXT NOT NULL,
+                fecha_fin TEXT NOT NULL,
+                ingresos_pen REAL DEFAULT 0.0,
+                ingresos_usd REAL DEFAULT 0.0,
+                egresos_pen REAL DEFAULT 0.0,
+                egresos_usd REAL DEFAULT 0.0,
+                ganancia_pen REAL DEFAULT 0.0,
+                ganancia_usd REAL DEFAULT 0.0,
+                fecha_generacion TEXT NOT NULL
+            );
             """
         ]
         # Execute table creation queries sequentially and swallow exceptions to prevent crashing the worker
@@ -309,7 +324,7 @@ class DatabaseManager:
             "abonos_proveedores", "creditos_proveedores",
             "prestamos_repuestos", "historial_ordenes",
             "ordenes_servicio", "productos", "contactos",
-            "categorias", "ventas", "compras", "cotizaciones", "configuracion"
+            "categorias", "ventas", "compras", "cotizaciones", "configuracion", "reportes_financieros"
         ]
         for t in tables_to_drop:
             try:

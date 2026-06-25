@@ -94,6 +94,12 @@ class APIRequestHandler(BaseHTTPRequestHandler):
                 result = await controllers.list_ventas(db)
             elif path == '/api/compras':
                 result = await controllers.list_compras(db)
+            elif path == '/api/reports':
+                result = await controllers.list_reportes(db)
+            elif path == '/api/reports/generate':
+                start_date = query.get('start_date', [''])[0]
+                end_date = query.get('end_date', [''])[0]
+                result = await controllers.calcular_reporte(db, start_date, end_date)
             else:
                 self.send_error_response(404, "Endpoint no encontrado")
                 return
@@ -155,6 +161,26 @@ class APIRequestHandler(BaseHTTPRequestHandler):
                 result = await controllers.create_venta(db, data)
             elif path == '/api/compras/create':
                 result = await controllers.create_compra(db, data)
+            elif path == '/api/reports/save':
+                now_str = controllers.now_timestamp()
+                await db.execute(
+                    """
+                    INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
+                    VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        data.get('fecha_inicio'),
+                        data.get('fecha_fin'),
+                        data.get('ingresos_pen', 0.0),
+                        data.get('ingresos_usd', 0.0),
+                        data.get('egresos_pen', 0.0),
+                        data.get('egresos_usd', 0.0),
+                        data.get('ganancia_pen', 0.0),
+                        data.get('ganancia_usd', 0.0),
+                        now_str
+                    ]
+                )
+                result = {"success": True, "message": "Reporte guardado exitosamente"}
             elif path == '/api/reset':
                 await db.reset_system()
                 result = {"success": True, "message": "Sistema restablecido por completo"}
