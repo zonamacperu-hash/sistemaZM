@@ -1408,10 +1408,10 @@ async def lazy_generar_reportes(db):
         rep = await calcular_reporte(db, pm_str, ps_str)
         await db.execute(
             """
-            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-            VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+            VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [pm_str, ps_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+            [f"{pm_str} al {ps_str}", pm_str, ps_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
         )
 
     # 2. Reporte Mensual (Mes calendario anterior completo)
@@ -1430,10 +1430,10 @@ async def lazy_generar_reportes(db):
         rep = await calcular_reporte(db, fpm_str, lpm_str)
         await db.execute(
             """
-            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-            VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+            VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [fpm_str, lpm_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+            [f"{fpm_str} al {lpm_str}", fpm_str, lpm_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
         )
 
     # 3. Reporte Anual (Año calendario anterior completo)
@@ -1449,10 +1449,10 @@ async def lazy_generar_reportes(db):
         rep = await calcular_reporte(db, fpy_str, lpy_str)
         await db.execute(
             """
-            INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-            VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+            VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [fpy_str, lpy_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
+            [f"{fpy_str} al {lpy_str}", fpy_str, lpy_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
         )
 
 

@@ -163,14 +163,17 @@ class APIRequestHandler(BaseHTTPRequestHandler):
                 result = await controllers.create_compra(db, data)
             elif path == '/api/reports/save':
                 now_str = controllers.now_timestamp()
+                start_d = data.get('fecha_inicio', '')
+                end_d = data.get('fecha_fin', '')
                 await db.execute(
                     """
-                    INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-                    VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+                    VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        data.get('fecha_inicio'),
-                        data.get('fecha_fin'),
+                        f"{start_d} al {end_d}",
+                        start_d,
+                        end_d,
                         data.get('ingresos_pen', 0.0),
                         data.get('ingresos_usd', 0.0),
                         data.get('egresos_pen', 0.0),

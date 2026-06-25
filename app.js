@@ -4214,22 +4214,7 @@ async function renderReportes() {
                     </thead>
                     <tbody id="reports-history-tbody">
                         <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Cargando historial...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-
-    // Set default dates to today
-    const todayStr = getLocalDateString(new Date());
-    document.getElementById('rep-start-date').value = todayStr;
-    document.getElementById('rep-end-date').value = todayStr;
-
-    // Load History
-    await loadReportsHistory();
-}
-
-async function loadReportsHistory() {
+                 async function loadReportsHistory() {
     const tbody = document.getElementById('reports-history-tbody');
     try {
         const reports = await fetchAPI('/api/reports');
@@ -4273,21 +4258,25 @@ async function loadReportsHistory() {
                 tipoBadge = `<span class="badge" style="background-color: rgba(48, 209, 88, 0.15); color: var(--success-color); font-weight: 700;">Manual</span>`;
             }
 
+            const valIng = rep.ingresos !== undefined ? rep.ingresos : rep.ingresos_pen;
+            const valEgr = rep.egresos !== undefined ? rep.egresos : rep.egresos_pen;
+            const valGan = rep.ganancia_neta !== undefined ? rep.ganancia_neta : rep.ganancia_pen;
+
             return `
                 <tr>
-                    <td>${formatTimestamp(rep.fecha_generacion)}</td>
+                    <td>${formatTimestamp(rep.creado_en || rep.fecha_generacion)}</td>
                     <td>${tipoBadge}</td>
                     <td><strong>${formatReportDate(rep.fecha_inicio)}</strong> al <strong>${formatReportDate(rep.fecha_fin)}</strong></td>
                     <td>
-                        <span style="display: block; font-weight: 500;">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</span>
+                        <span style="display: block; font-weight: 500;">S/ ${parseFloat(valIng).toFixed(2)}</span>
                         <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</small>
                     </td>
                     <td>
-                        <span style="display: block; font-weight: 500; color: var(--danger-color);">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</span>
+                        <span style="display: block; font-weight: 500; color: var(--danger-color);">S/ ${parseFloat(valEgr).toFixed(2)}</span>
                         <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</small>
                     </td>
                     <td>
-                        <strong style="display: block; color: var(--accent-color);">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</strong>
+                        <strong style="display: block; color: var(--accent-color);">S/ ${parseFloat(valGan).toFixed(2)}</strong>
                         <small style="color: var(--text-secondary); font-size: 11px;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</small>
                     </td>
                     <td>
@@ -4349,11 +4338,15 @@ async function generateManualReport() {
         const rep = await fetchAPI(`/api/reports/generate?start_date=${startDate}&end_date=${endDate}`);
         appState.currentReport = rep;
         
-        document.getElementById('rep-ingresos-pen').innerText = `S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}`;
+        const valIng = rep.ingresos !== undefined ? rep.ingresos : rep.ingresos_pen;
+        const valEgr = rep.egresos !== undefined ? rep.egresos : rep.egresos_pen;
+        const valGan = rep.ganancia_neta !== undefined ? rep.ganancia_neta : rep.ganancia_pen;
+
+        document.getElementById('rep-ingresos-pen').innerText = `S/ ${parseFloat(valIng).toFixed(2)}`;
         document.getElementById('rep-ingresos-usd').innerText = `$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD`;
-        document.getElementById('rep-egresos-pen').innerText = `S/ ${parseFloat(rep.egresos_pen).toFixed(2)}`;
+        document.getElementById('rep-egresos-pen').innerText = `S/ ${parseFloat(valEgr).toFixed(2)}`;
         document.getElementById('rep-egresos-usd').innerText = `$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD`;
-        document.getElementById('rep-ganancia-pen').innerText = `S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}`;
+        document.getElementById('rep-ganancia-pen').innerText = `S/ ${parseFloat(valGan).toFixed(2)}`;
         document.getElementById('rep-ganancia-usd').innerText = `$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD`;
         
         const formatReportDate = (dateStr) => {
@@ -4384,16 +4377,20 @@ async function saveManualReport() {
     }
 
     try {
+        const valIng = appState.currentReport.ingresos !== undefined ? appState.currentReport.ingresos : appState.currentReport.ingresos_pen;
+        const valEgr = appState.currentReport.egresos !== undefined ? appState.currentReport.egresos : appState.currentReport.egresos_pen;
+        const valGan = appState.currentReport.ganancia_neta !== undefined ? appState.currentReport.ganancia_neta : appState.currentReport.ganancia_pen;
+
         const res = await fetchAPI('/api/reports/save', {
             method: 'POST',
             body: JSON.stringify({
                 fecha_inicio: appState.currentReport.fecha_inicio,
                 fecha_fin: appState.currentReport.fecha_fin,
-                ingresos_pen: appState.currentReport.ingresos_pen,
+                ingresos_pen: valIng,
                 ingresos_usd: appState.currentReport.ingresos_usd,
-                egresos_pen: appState.currentReport.egresos_pen,
+                egresos_pen: valEgr,
                 egresos_usd: appState.currentReport.egresos_usd,
-                ganancia_pen: appState.currentReport.ganancia_pen,
+                ganancia_pen: valGan,
                 ganancia_usd: appState.currentReport.ganancia_usd
             })
         });
@@ -4433,6 +4430,10 @@ function showReportPreviewModal(rep) {
         }
         return dateStr;
     };
+
+    const valIng = rep.ingresos !== undefined ? rep.ingresos : rep.ingresos_pen;
+    const valEgr = rep.egresos !== undefined ? rep.egresos : rep.egresos_pen;
+    const valGan = rep.ganancia_neta !== undefined ? rep.ganancia_neta : rep.ganancia_pen;
     
     const contentHTML = `
         <div class="report-preview-card" style="padding: 10px; color: var(--text-primary);">
@@ -4448,7 +4449,7 @@ function showReportPreviewModal(rep) {
                 </div>
                 <div>
                     <span style="font-size: 12px; color: var(--text-secondary); display: block;">Generado el</span>
-                    <strong>${rep.fecha_generacion || new Date().toLocaleString()}</strong>
+                    <strong>${rep.creado_en || rep.fecha_generacion || new Date().toLocaleString()}</strong>
                 </div>
             </div>
             
@@ -4456,7 +4457,7 @@ function showReportPreviewModal(rep) {
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--success-color);">
                     <span><strong style="color: var(--success-color);">Ingresos Totales</strong></span>
                     <div style="text-align: right;">
-                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--success-color);">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</span>
+                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--success-color);">S/ ${parseFloat(valIng).toFixed(2)}</span>
                         <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</small>
                     </div>
                 </div>
@@ -4464,7 +4465,7 @@ function showReportPreviewModal(rep) {
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--danger-color);">
                     <span><strong style="color: var(--danger-color);">Egresos Totales</strong></span>
                     <div style="text-align: right;">
-                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--danger-color);">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</span>
+                        <span style="display: block; font-weight: bold; font-size: 15px; color: var(--danger-color);">S/ ${parseFloat(valEgr).toFixed(2)}</span>
                         <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</small>
                     </div>
                 </div>
@@ -4472,7 +4473,7 @@ function showReportPreviewModal(rep) {
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background-color: var(--bg-input); border-radius: var(--border-radius-sm); border-left: 4px solid var(--accent-color);">
                     <span><strong style="color: var(--accent-color);">Ganancia Neta</strong></span>
                     <div style="text-align: right;">
-                        <span style="display: block; font-weight: bold; font-size: 16px; color: var(--accent-color);">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</span>
+                        <span style="display: block; font-weight: bold; font-size: 16px; color: var(--accent-color);">S/ ${parseFloat(valGan).toFixed(2)}</span>
                         <small style="color: var(--text-secondary); font-size: 12px;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</small>
                     </div>
                 </div>
@@ -4498,6 +4499,10 @@ function printFinancialReport(rep) {
         }
         return dateStr;
     };
+
+    const valIng = rep.ingresos !== undefined ? rep.ingresos : rep.ingresos_pen;
+    const valEgr = rep.egresos !== undefined ? rep.egresos : rep.egresos_pen;
+    const valGan = rep.ganancia_neta !== undefined ? rep.ganancia_neta : rep.ganancia_pen;
 
     const logoPath = 'logo.jpg';
     const printArea = document.getElementById('print-area');
@@ -4534,24 +4539,24 @@ function printFinancialReport(rep) {
                 <div class="a4-metadata-col">
                     <h4>Generación del Reporte</h4>
                     <p><strong>Tipo:</strong> Reporte ${rep.tipo}</p>
-                    <p><strong>Fecha Emisión:</strong> ${rep.fecha_generacion || new Date().toLocaleString()}</p>
+                    <p><strong>Fecha Emisión:</strong> ${rep.creado_en || rep.fecha_generacion || new Date().toLocaleString()}</p>
                 </div>
             </div>
 
             <div class="a4-report-grid">
                 <div class="a4-report-card">
                     <div class="a4-report-card-label">Total Ingresos</div>
-                    <div class="a4-report-card-val" style="color: #009f7f;">S/ ${parseFloat(rep.ingresos_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-val" style="color: #009f7f;">S/ ${parseFloat(valIng).toFixed(2)}</div>
                     <div class="a4-report-card-sub">$ ${parseFloat(rep.ingresos_usd).toFixed(2)} USD</div>
                 </div>
                 <div class="a4-report-card">
                     <div class="a4-report-card-label">Total Egresos</div>
-                    <div class="a4-report-card-val" style="color: #ff453a;">S/ ${parseFloat(rep.egresos_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-val" style="color: #ff453a;">S/ ${parseFloat(valEgr).toFixed(2)}</div>
                     <div class="a4-report-card-sub">$ ${parseFloat(rep.egresos_usd).toFixed(2)} USD</div>
                 </div>
                 <div class="a4-report-card" style="border-color: #0071e3; background-color: #fafaff;">
                     <div class="a4-report-card-label" style="color: #0071e3;">Ganancia Neta</div>
-                    <div class="a4-report-card-val" style="color: #0071e3;">S/ ${parseFloat(rep.ganancia_pen).toFixed(2)}</div>
+                    <div class="a4-report-card-val" style="color: #0071e3;">S/ ${parseFloat(valGan).toFixed(2)}</div>
                     <div class="a4-report-card-sub" style="color: #0071e3;">$ ${parseFloat(rep.ganancia_usd).toFixed(2)} USD</div>
                 </div>
             </div>

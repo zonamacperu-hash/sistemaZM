@@ -262,15 +262,16 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS reportes_financieros (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo TEXT NOT NULL,
+                rango_fechas TEXT NOT NULL,
                 fecha_inicio TEXT NOT NULL,
                 fecha_fin TEXT NOT NULL,
-                ingresos_pen REAL DEFAULT 0.0,
+                ingresos REAL DEFAULT 0.0,
                 ingresos_usd REAL DEFAULT 0.0,
-                egresos_pen REAL DEFAULT 0.0,
+                egresos REAL DEFAULT 0.0,
                 egresos_usd REAL DEFAULT 0.0,
-                ganancia_pen REAL DEFAULT 0.0,
-                ganancia_usd REAL DEFAULT 0.0,
-                fecha_generacion TEXT NOT NULL
+                ganancia_neta REAL DEFAULT 0.0,
+                ganancia_neta_usd REAL DEFAULT 0.0,
+                creado_en TEXT NOT NULL
             );
             """
         ]

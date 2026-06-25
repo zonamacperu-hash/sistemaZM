@@ -309,12 +309,15 @@ export async function onRequest(context) {
 
       if (path === '/api/reports/save') {
         const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        const startD = data.fecha_inicio || '';
+        const endD = data.fecha_fin || '';
         await env.DB.prepare(`
-          INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-          VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+          VALUES ('Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
-          data.fecha_inicio,
-          data.fecha_fin,
+          `${startD} al ${endD}`,
+          startD,
+          endD,
           parseFloat(data.ingresos_pen || 0.0),
           parseFloat(data.ingresos_usd || 0.0),
           parseFloat(data.egresos_pen || 0.0),
@@ -861,7 +864,7 @@ async function createQuote(db, data) {
 
 async function initDb(db) {
   try {
-    await db.prepare("SELECT 1 FROM configuracion LIMIT 1").first();
+    await db.prepare("SELECT 1 FROM reportes_financieros LIMIT 1").first();
     return;
   } catch (e) {}
 
@@ -1031,15 +1034,16 @@ async function initDb(db) {
     `CREATE TABLE IF NOT EXISTS reportes_financieros (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tipo TEXT NOT NULL,
+        rango_fechas TEXT NOT NULL,
         fecha_inicio TEXT NOT NULL,
         fecha_fin TEXT NOT NULL,
-        ingresos_pen REAL DEFAULT 0.0,
+        ingresos REAL DEFAULT 0.0,
         ingresos_usd REAL DEFAULT 0.0,
-        egresos_pen REAL DEFAULT 0.0,
+        egresos REAL DEFAULT 0.0,
         egresos_usd REAL DEFAULT 0.0,
-        ganancia_pen REAL DEFAULT 0.0,
-        ganancia_usd REAL DEFAULT 0.0,
-        fecha_generacion TEXT NOT NULL
+        ganancia_neta REAL DEFAULT 0.0,
+        ganancia_neta_usd REAL DEFAULT 0.0,
+        creado_en TEXT NOT NULL
     );`
   ];
 
@@ -1629,9 +1633,9 @@ async function lazyGenerarReportes(db) {
   if (!weeklyExists) {
     const rep = await calcularReporte(db, pmStr, psStr);
     await db.prepare(`
-      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-      VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(pmStr, psStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+      INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+      VALUES ('Semanal', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(`${pmStr} al ${psStr}`, pmStr, psStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
   }
 
   // 2. Reporte Mensual
@@ -1650,9 +1654,9 @@ async function lazyGenerarReportes(db) {
   if (!monthlyExists) {
     const rep = await calcularReporte(db, fpmStr, lpmStr);
     await db.prepare(`
-      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-      VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(fpmStr, lpmStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+      INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+      VALUES ('Mensual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(`${fpmStr} al ${lpmStr}`, fpmStr, lpmStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
   }
 
   // 3. Reporte Anual
@@ -1667,9 +1671,9 @@ async function lazyGenerarReportes(db) {
   if (!annualExists) {
     const rep = await calcularReporte(db, fpyStr, lpyStr);
     await db.prepare(`
-      INSERT INTO reportes_financieros (tipo, fecha_inicio, fecha_fin, ingresos_pen, ingresos_usd, egresos_pen, egresos_usd, ganancia_pen, ganancia_usd, fecha_generacion)
-      VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(fpyStr, lpyStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+      INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
+      VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(`${fpyStr} al ${lpyStr}`, fpyStr, lpyStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
   }
 }
 
