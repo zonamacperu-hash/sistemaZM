@@ -95,9 +95,12 @@ export async function onRequest(context) {
       
       if (path === '/api/orders') {
         const { results } = await env.DB.prepare(`
-          SELECT o.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.numero_documento as cliente_documento
+          SELECT o.*, 
+                 COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre, 
+                 COALESCE(c.telefono, o.cliente_telefono) as cliente_telefono, 
+                 COALESCE(c.numero_documento, o.cliente_documento) as cliente_documento
           FROM ordenes_servicio o 
-          JOIN contactos c ON o.contacto_id = c.id 
+          LEFT JOIN contactos c ON o.contacto_id = c.id 
           ORDER BY o.id DESC
         `).all();
         return jsonResponse(200, results);
@@ -389,8 +392,16 @@ async function getDashboardStats(db) {
     "SELECT SUM(total_usd) as total_usd, SUM(total_pen) as total_pen, COUNT(*) as count FROM ventas WHERE date(fecha) = date(?)"
   ).bind(today).first();
 
+  const supportToday = await db.prepare(
+    "SELECT SUM(precio_venta_usd) as usd, SUM(precio_venta_pen) as pen, COUNT(*) as count FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) = date(?)"
+  ).bind(today).first();
+
   const salesMonth = await db.prepare(
     "SELECT SUM(total_usd) as total_usd, SUM(total_pen) as total_pen, COUNT(*) as count FROM ventas WHERE strftime('%Y-%m', fecha) = ?"
+  ).bind(currentMonth).first();
+
+  const supportMonth = await db.prepare(
+    "SELECT SUM(precio_venta_usd) as usd, SUM(precio_venta_pen) as pen, COUNT(*) as count FROM ordenes_servicio WHERE estado = 'Entregado' AND strftime('%Y-%m', fecha_entrega) = ?"
   ).bind(currentMonth).first();
 
   const activeSupport = await db.prepare(
@@ -413,9 +424,9 @@ async function getDashboardStats(db) {
   `).all();
 
   const { results: recentSupport } = await db.prepare(`
-    SELECT o.*, c.nombre as cliente_nombre 
+    SELECT o.*, COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre 
     FROM ordenes_servicio o 
-    JOIN contactos c ON o.contacto_id = c.id 
+    LEFT JOIN contactos c ON o.contacto_id = c.id 
     ORDER BY o.fecha_registro DESC LIMIT 5
   `).all();
 
@@ -424,8 +435,13 @@ async function getDashboardStats(db) {
   ).all();
 
   const { results: monthlyFlow } = await db.prepare(`
-    SELECT strftime('%Y-%m', fecha) as mes, SUM(total_pen) as total_pen, SUM(total_usd) as total_usd
-    FROM ventas 
+    SELECT mes, SUM(pen) as total_pen, SUM(usd) as total_usd
+    FROM (
+        SELECT strftime('%Y-%m', fecha) as mes, total_pen as pen, total_usd as usd FROM ventas
+        UNION ALL
+        SELECT strftime('%Y-%m', fecha_entrega) as mes, precio_venta_pen as pen, precio_venta_usd as usd FROM ordenes_servicio WHERE estado = 'Entregado'
+    )
+    WHERE mes IS NOT NULL
     GROUP BY mes 
     ORDER BY mes DESC 
     LIMIT 6
@@ -433,14 +449,14 @@ async function getDashboardStats(db) {
 
   return {
     sales_today: {
-      usd: salesToday?.total_usd || 0.0,
-      pen: salesToday?.total_pen || 0.0,
-      count: salesToday?.count || 0
+      usd: (salesToday?.total_usd || 0.0) + (supportToday?.usd || 0.0),
+      pen: (salesToday?.total_pen || 0.0) + (supportToday?.pen || 0.0),
+      count: (salesToday?.count || 0) + (supportToday?.count || 0)
     },
     sales_month: {
-      usd: salesMonth?.total_usd || 0.0,
-      pen: salesMonth?.total_pen || 0.0,
-      count: salesMonth?.count || 0
+      usd: (salesMonth?.total_usd || 0.0) + (supportMonth?.usd || 0.0),
+      pen: (salesMonth?.total_pen || 0.0) + (supportMonth?.pen || 0.0),
+      count: (salesMonth?.count || 0) + (supportMonth?.count || 0)
     },
     active_support: activeSupport?.count || 0,
     accounts_receivable: {
@@ -595,8 +611,42 @@ async function updateProducto(db, id, data) {
 // ============================================================================
 
 async function createOrder(db, data) {
-  const contacto_id = data.cliente_id || data.contacto_id;
-  if (!contacto_id) return { success: false, error: "Seleccione un cliente/contacto" };
+  let contacto_id = data.cliente_id || data.contacto_id;
+  let is_manual = false;
+  if (!contacto_id || contacto_id === 'manual' || String(contacto_id) === '0') {
+    contacto_id = null;
+    is_manual = true;
+  }
+
+  const cliente_nombre = data.cliente_nombre || null;
+  const cliente_telefono = data.cliente_telefono || null;
+  const cliente_email = data.cliente_email || null;
+  const cliente_tipo_documento = data.cliente_tipo_documento || null;
+  const cliente_documento = data.cliente_documento || null;
+
+  if (is_manual && !cliente_nombre) {
+    return { success: false, error: "Debe seleccionar un cliente o ingresar el nombre del cliente manualmente" };
+  }
+
+  const repuesto_id = data.repuesto_id ? parseInt(data.repuesto_id) : null;
+  const repuesto_cantidad = repuesto_id ? parseInt(data.repuesto_cantidad || "0") : 0;
+  let repuesto_costo_usd = 0.0;
+  let repuesto_costo_pen = 0.0;
+
+  if (repuesto_id) {
+    const prod = await db.prepare("SELECT * FROM productos WHERE id = ?").bind(repuesto_id).first();
+    if (!prod) {
+      return { success: false, error: "El repuesto seleccionado no existe en el inventario" };
+    }
+    if (prod.stock_actual < repuesto_cantidad) {
+      return { success: false, error: `Stock insuficiente para el repuesto '${prod.nombre}'. Disponible: ${prod.stock_actual}` };
+    }
+    repuesto_costo_usd = prod.costo_usd || 0.0;
+    repuesto_costo_pen = prod.costo_pen || 0.0;
+
+    // Discount stock
+    await db.prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?").bind(repuesto_cantidad, repuesto_id).run();
+  }
 
   const now = new Date().toISOString();
 
@@ -604,8 +654,10 @@ async function createOrder(db, data) {
     INSERT INTO ordenes_servicio (
         contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada, 
         contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd, 
-        costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro
-    ) VALUES (?, ?, ?, ?, ?, ?, 'Recibido', ?, ?, ?, ?, ?, ?, ?)
+        costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro,
+        cliente_nombre, cliente_telefono, cliente_email, cliente_tipo_documento, cliente_documento,
+        repuesto_id, repuesto_cantidad, repuesto_costo_usd, repuesto_costo_pen
+    ) VALUES (?, ?, ?, ?, ?, ?, 'Recibido', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     contacto_id,
     data.equipo_modelo,
@@ -613,13 +665,22 @@ async function createOrder(db, data) {
     data.estado_estetico || null,
     data.falla_reportada,
     data.contrasena || null,
-    data.notas_tecnico || null,
+    data.notes_tecnico || data.notas_tecnico || null,
     data.tecnico_asignado || null,
     parseFloat(data.costo_estimado_usd || "0.0"),
     parseFloat(data.costo_estimado_pen || "0.0"),
     parseFloat(data.precio_venta_usd || "0.0"),
     parseFloat(data.precio_venta_pen || "0.0"),
-    now
+    now,
+    cliente_nombre,
+    cliente_telefono,
+    cliente_email,
+    cliente_tipo_documento,
+    cliente_documento,
+    repuesto_id,
+    repuesto_cantidad,
+    repuesto_costo_usd,
+    repuesto_costo_pen
   ).run();
 
   const lastIdRow = await db.prepare("SELECT last_insert_rowid() as id").first();
@@ -634,13 +695,28 @@ async function createOrder(db, data) {
 }
 
 async function updateOrderStatus(db, id, data) {
-  const current = await db.prepare("SELECT estado FROM ordenes_servicio WHERE id = ?").bind(id).first();
+  const current = await db.prepare("SELECT estado, repuesto_id, repuesto_cantidad FROM ordenes_servicio WHERE id = ?").bind(id).first();
   if (!current) return { success: false, error: "Orden no encontrada" };
 
   const prev_state = current.estado;
   const new_state = data.estado;
   const notas = data.notas || '';
   const now = new Date().toISOString();
+
+  // Inventory adjustments when transitioning to or from 'Sin Reparación'
+  if (new_state === 'Sin Reparación' && prev_state !== 'Sin Reparación') {
+    const rep_id = current.repuesto_id;
+    const rep_qty = current.repuesto_cantidad;
+    if (rep_id && rep_qty > 0) {
+      await db.prepare("UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?").bind(rep_qty, rep_id).run();
+    }
+  } else if (prev_state === 'Sin Reparación' && new_state !== 'Sin Reparación') {
+    const rep_id = current.repuesto_id;
+    const rep_qty = current.repuesto_cantidad;
+    if (rep_id && rep_qty > 0) {
+      await db.prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?").bind(rep_qty, rep_id).run();
+    }
+  }
 
   const tecnico_asignado = data.tecnico_asignado;
   const notas_tecnico = data.notas_tecnico;
@@ -681,10 +757,16 @@ async function updateOrderStatus(db, id, data) {
 
 async function getOrderDetail(db, id) {
   const order = await db.prepare(`
-    SELECT o.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, 
-           c.email as cliente_email, c.tipo_documento as cliente_tipo_documento, c.numero_documento as cliente_documento
+    SELECT o.*, 
+           COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre, 
+           COALESCE(c.telefono, o.cliente_telefono) as cliente_telefono, 
+           COALESCE(c.email, o.cliente_email) as cliente_email, 
+           COALESCE(c.tipo_documento, o.cliente_tipo_documento) as cliente_tipo_documento, 
+           COALESCE(c.numero_documento, o.cliente_documento) as cliente_documento,
+           p.nombre as repuesto_nombre, p.codigo as repuesto_codigo
     FROM ordenes_servicio o 
-    JOIN contactos c ON o.contacto_id = c.id 
+    LEFT JOIN contactos c ON o.contacto_id = c.id 
+    LEFT JOIN productos p ON o.repuesto_id = p.id
     WHERE o.id = ?
   `).bind(id).first();
   if (!order) return { success: false, error: "Orden de servicio no encontrada" };
@@ -863,6 +945,76 @@ async function createQuote(db, data) {
 // ============================================================================
 
 async function initDb(db) {
+  // Self-healing migration to make contacto_id nullable and add new columns to ordenes_servicio in Cloudflare D1 (run unconditionally)
+  try {
+    const tableCheck = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ordenes_servicio'").first();
+    if (tableCheck) {
+      const tableInfo = await db.prepare("PRAGMA table_info(ordenes_servicio)").all();
+      const cols = tableInfo.results.map(r => r.name);
+      if (!cols.includes('cliente_nombre')) {
+        await db.prepare("ALTER TABLE ordenes_servicio RENAME TO ordenes_servicio_old").run();
+        await db.prepare(`
+          CREATE TABLE ordenes_servicio (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              contacto_id INTEGER,
+              equipo_modelo TEXT NOT NULL,
+              equipo_serie_imei TEXT NOT NULL,
+              estado_estetico TEXT,
+              falla_reportada TEXT NOT NULL,
+              contrasena TEXT,
+              estado TEXT NOT NULL,
+              notas_tecnico TEXT,
+              tecnico_asignado TEXT,
+              costo_estimado_usd REAL DEFAULT 0.0,
+              costo_estimado_pen REAL DEFAULT 0.0,
+              precio_venta_usd REAL DEFAULT 0.0,
+              precio_venta_pen REAL DEFAULT 0.0,
+              fecha_registro TEXT NOT NULL,
+              fecha_entrega TEXT,
+              garantia_servicio TEXT DEFAULT 'Sin garantía',
+              cliente_nombre TEXT,
+              cliente_telefono TEXT,
+              cliente_email TEXT,
+              cliente_tipo_documento TEXT,
+              cliente_documento TEXT,
+              repuesto_id INTEGER,
+              repuesto_cantidad INTEGER DEFAULT 0,
+              repuesto_costo_usd REAL DEFAULT 0.0,
+              repuesto_costo_pen REAL DEFAULT 0.0,
+              FOREIGN KEY(contacto_id) REFERENCES contactos(id),
+              FOREIGN KEY(repuesto_id) REFERENCES productos(id)
+          );
+        `).run();
+        await db.prepare(`
+          INSERT INTO ordenes_servicio (
+              id, contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada,
+              contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd,
+              costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro, fecha_entrega, garantia_servicio
+          )
+          SELECT 
+              id, contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada,
+              contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd,
+              costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro, fecha_entrega, garantia_servicio
+          FROM ordenes_servicio_old;
+        `).run();
+        await db.prepare("DROP TABLE ordenes_servicio_old").run();
+      }
+    }
+  } catch (e) {
+    console.error("Migration error in Cloudflare D1 JS:", e);
+  }
+
+  const migrations = [
+    "ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'",
+    "ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0",
+    "ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'"
+  ];
+  for (const m of migrations) {
+    try {
+      await db.prepare(m).run();
+    } catch (e) {}
+  }
+
   try {
     await db.prepare("SELECT 1 FROM reportes_financieros LIMIT 1").first();
     return;
@@ -905,7 +1057,7 @@ async function initDb(db) {
     );`,
     `CREATE TABLE IF NOT EXISTS ordenes_servicio (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        contacto_id INTEGER NOT NULL,
+        contacto_id INTEGER,
         equipo_modelo TEXT NOT NULL,
         equipo_serie_imei TEXT NOT NULL,
         estado_estetico TEXT,
@@ -921,7 +1073,17 @@ async function initDb(db) {
         fecha_registro TEXT NOT NULL,
         fecha_entrega TEXT,
         garantia_servicio TEXT DEFAULT 'Sin garantía',
-        FOREIGN KEY(contacto_id) REFERENCES contactos(id)
+        cliente_nombre TEXT,
+        cliente_telefono TEXT,
+        cliente_email TEXT,
+        cliente_tipo_documento TEXT,
+        cliente_documento TEXT,
+        repuesto_id INTEGER,
+        repuesto_cantidad INTEGER DEFAULT 0,
+        repuesto_costo_usd REAL DEFAULT 0.0,
+        repuesto_costo_pen REAL DEFAULT 0.0,
+        FOREIGN KEY(contacto_id) REFERENCES contactos(id),
+        FOREIGN KEY(repuesto_id) REFERENCES productos(id)
     );`,
     `CREATE TABLE IF NOT EXISTS historial_ordenes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1053,16 +1215,7 @@ async function initDb(db) {
     } catch (e) {}
   }
 
-  const migrations = [
-    "ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'",
-    "ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0",
-    "ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'"
-  ];
-  for (const m of migrations) {
-    try {
-      await db.prepare(m).run();
-    } catch (e) {}
-  }
+  // Migrations already performed at startup
 
   const catCount = await db.prepare("SELECT COUNT(*) as count FROM categorias").first();
   if (!catCount || catCount.count === 0) {
@@ -1583,9 +1736,9 @@ async function calcularReporte(db, start_date, end_date) {
   const c_pen = compras?.pen || 0.0;
   const c_usd = compras?.usd || 0.0;
 
-  // 4. Soporte Técnico - Egresos (costo_estimado de ordenes entregadas)
+  // 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas)
   const soporteEgr = await db.prepare(
-    "SELECT SUM(costo_estimado_pen) as pen, SUM(costo_estimado_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
+    "SELECT SUM(costo_estimado_pen + COALESCE(repuesto_costo_pen * repuesto_cantidad, 0)) as pen, SUM(costo_estimado_usd + COALESCE(repuesto_costo_usd * repuesto_cantidad, 0)) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
   ).bind(start_date, end_date).first();
   const s_egr_pen = soporteEgr?.pen || 0.0;
   const s_egr_usd = soporteEgr?.usd || 0.0;

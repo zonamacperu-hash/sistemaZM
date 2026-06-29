@@ -778,21 +778,84 @@ async function renderReparaciones() {
     }
 }
 
+window.toggleManualClientSection = function(val) {
+    const sect = document.getElementById('ord-manual-client-section');
+    const nameInput = document.getElementById('ord-cliente-nombre');
+    if (val === 'manual') {
+        sect.style.display = 'block';
+        nameInput.required = true;
+    } else {
+        sect.style.display = 'none';
+        nameInput.required = false;
+        nameInput.value = '';
+        document.getElementById('ord-cliente-telefono').value = '';
+        document.getElementById('ord-cliente-documento').value = '';
+    }
+};
+
+window.toggleSparePartQty = function(val) {
+    const qtyInput = document.getElementById('ord-repuesto-cantidad');
+    if (val) {
+        qtyInput.disabled = false;
+    } else {
+        qtyInput.disabled = true;
+        qtyInput.value = '1';
+    }
+};
+
 async function openCreateOrderModal() {
     try {
-        const contacts = await fetchAPI('/api/contacts');
+        const [contacts, products] = await Promise.all([
+            fetchAPI('/api/contacts'),
+            fetchAPI('/api/products')
+        ]);
+        
         const clientOptions = contacts.filter(c => c.tipo_contacto === 'Cliente' || c.tipo_contacto === 'Ambos')
                                        .map(c => `<option value="${c.id}">${c.nombre} (${c.numero_documento})</option>`).join('');
+
+        const spareOptions = products.map(p => `<option value="${p.id}">${p.nombre} (Cód: ${p.codigo}) - Stock: ${p.stock_actual}</option>`).join('');
 
         const html = `
             <form id="create-order-form" onsubmit="submitCreateOrder(event)">
                 <div class="form-group">
                     <label>Asociar Cliente/Contacto *</label>
-                    <select id="ord-cliente-id" class="form-control" required>
+                    <select id="ord-cliente-id" class="form-control" required onchange="toggleManualClientSection(this.value)">
                         <option value="">Seleccione...</option>
+                        <option value="manual">-- INGRESAR CLIENTE MANUALMENTE --</option>
                         ${clientOptions}
                     </select>
                 </div>
+
+                <!-- Manual Client Section -->
+                <div id="ord-manual-client-section" style="display: none; border: 1px dashed var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                    <h5 style="margin-bottom: 8px; color: var(--accent-color);">Datos del Cliente Manual</h5>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Nombre Completo *</label>
+                            <input type="text" id="ord-cliente-nombre" class="form-control" placeholder="Nombre y Apellidos">
+                        </div>
+                        <div class="form-group">
+                            <label>Teléfono</label>
+                            <input type="text" id="ord-cliente-telefono" class="form-control" placeholder="Nº de teléfono">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Tipo Documento</label>
+                            <select id="ord-cliente-tipo-documento" class="form-control">
+                                <option value="DNI">DNI</option>
+                                <option value="RUC">RUC</option>
+                                <option value="CE">C.E.</option>
+                                <option value="Pasaporte">Pasaporte</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Número de Documento</label>
+                            <input type="text" id="ord-cliente-documento" class="form-control" placeholder="DNI o RUC">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label>Modelo del Equipo *</label>
@@ -815,8 +878,24 @@ async function openCreateOrderModal() {
                 </div>
                 <div class="form-group">
                     <label>Falla Reportada *</label>
-                    <textarea id="ord-falla" class="form-control" rows="3" required placeholder="Describa el problema..."></textarea>
+                    <textarea id="ord-falla" class="form-control" rows="2" required placeholder="Describa el problema..."></textarea>
                 </div>
+
+                <!-- Spare Part Selection -->
+                <div class="form-row" style="background-color: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 12px;">
+                    <div class="form-group" style="flex: 2;">
+                        <label>Repuesto del Inventario (Opcional)</label>
+                        <select id="ord-repuesto-id" class="form-control" onchange="toggleSparePartQty(this.value)">
+                            <option value="">Ninguno / Mano de Obra Pura</option>
+                            ${spareOptions}
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Cantidad de Repuesto</label>
+                        <input type="number" id="ord-repuesto-cantidad" class="form-control" value="1" min="1" disabled>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label>Presupuesto Inicial (USD)</label>
@@ -2114,8 +2193,16 @@ function convertPriceInput(usdId, penId, direction) {
 
 async function submitCreateOrder(event) {
     event.preventDefault();
+    const clientInputVal = document.getElementById('ord-cliente-id').value;
+    const isManual = clientInputVal === 'manual';
+    
     const payload = {
-        cliente_id: parseInt(document.getElementById('ord-cliente-id').value),
+        cliente_id: isManual ? null : parseInt(clientInputVal),
+        cliente_nombre: isManual ? document.getElementById('ord-cliente-nombre').value : null,
+        cliente_telefono: isManual ? document.getElementById('ord-cliente-telefono').value : null,
+        cliente_email: null,
+        cliente_tipo_documento: isManual ? document.getElementById('ord-cliente-tipo-documento').value : null,
+        cliente_documento: isManual ? document.getElementById('ord-cliente-documento').value : null,
         equipo_modelo: document.getElementById('ord-modelo').value,
         equipo_serie_imei: document.getElementById('ord-serie').value,
         estado_estetico: document.getElementById('ord-estetico').value,
@@ -2124,7 +2211,9 @@ async function submitCreateOrder(event) {
         precio_venta_usd: parseFloat(document.getElementById('ord-costo-usd').value) || 0.0,
         precio_venta_pen: parseFloat(document.getElementById('ord-costo-pen').value) || 0.0,
         tecnico_asignado: document.getElementById('ord-tecnico').value,
-        notas_tecnico: document.getElementById('ord-notas').value
+        notas_tecnico: document.getElementById('ord-notas').value,
+        repuesto_id: document.getElementById('ord-repuesto-id').value ? parseInt(document.getElementById('ord-repuesto-id').value) : null,
+        repuesto_cantidad: document.getElementById('ord-repuesto-id').value ? parseInt(document.getElementById('ord-repuesto-cantidad').value) : 0
     };
 
     try {
@@ -2248,8 +2337,8 @@ async function openOrderDetailModal(orderId) {
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                     <div>
                         <h4>Datos del Cliente</h4>
-                        <p style="margin-top:4px;"><strong>Nombre:</strong> ${o.cliente_nombre}</p>
-                        <p><strong>Documento:</strong> ${o.cliente_tipo_documento} ${o.cliente_documento}</p>
+                        <p style="margin-top:4px;"><strong>Nombre:</strong> ${o.cliente_nombre || 'Cliente Manual'}</p>
+                        <p><strong>Documento:</strong> ${o.cliente_tipo_documento || ''} ${o.cliente_documento || 'No registra'}</p>
                         <p><strong>Teléfono:</strong> ${o.cliente_telefono || 'No registra'}</p>
                         <p><strong>Email:</strong> ${o.cliente_email || 'No registra'}</p>
                     </div>
@@ -2268,6 +2357,7 @@ async function openOrderDetailModal(orderId) {
                         <h4>Detalles Técnicos</h4>
                         <p style="margin-top:4px;"><strong>Estado Actual:</strong> <span class="badge badge-${o.estado.toLowerCase().replace(/á/g, 'a').replace(/ó/g, 'o').replace(/ /g, '-')}">${o.estado}</span></p>
                         <p><strong>Técnico Responsable:</strong> ${o.tecnico_asignado || 'No asignado'}</p>
+                        <p><strong>Repuesto Utilizado:</strong> ${o.repuesto_nombre ? `${o.repuesto_nombre} (Cant: ${o.repuesto_cantidad})` : 'Ninguno'}</p>
                         <p><strong>Costo Estimado:</strong> S/ ${o.precio_venta_pen.toFixed(2)} ($ ${o.precio_venta_usd.toFixed(2)})</p>
                         <p><strong>Notas Técnicas Internas:</strong> ${o.notas_tecnico || 'Sin notas'}</p>
                     </div>
@@ -2933,6 +3023,8 @@ async function printReceipt(orderId) {
     try {
         const detail = await fetchAPI(`/api/orders/detail?id=${orderId}`);
         const o = detail.order;
+        const totalRepuestoPen = (o.repuesto_costo_pen || 0.0) * (o.repuesto_cantidad || 0);
+        const manoObraPen = o.precio_venta_pen - totalRepuestoPen;
         
         const isDelivery = o.estado === 'Entregado';
         const printArea = document.getElementById('print-area');
@@ -3064,8 +3156,15 @@ async function printReceipt(orderId) {
                             <tr>
                                 <td>Servicio de Mano de Obra y Calibración</td>
                                 <td style="text-align: center;">1 U.</td>
-                                <td style="text-align: right;">S/ ${o.precio_venta_pen.toFixed(2)}</td>
+                                <td style="text-align: right;">S/ ${manoObraPen.toFixed(2)}</td>
                             </tr>
+                            ${o.repuesto_nombre ? `
+                            <tr>
+                                <td>Repuesto: ${o.repuesto_nombre}</td>
+                                <td style="text-align: center;">${o.repuesto_cantidad} U.</td>
+                                <td style="text-align: right;">S/ ${totalRepuestoPen.toFixed(2)}</td>
+                            </tr>
+                            ` : ''}
                         </tbody>
                     </table>
 
@@ -3073,11 +3172,11 @@ async function printReceipt(orderId) {
                         <div class="a4-totals-box">
                             <div class="a4-total-row">
                                 <span>Mano de Obra</span>
-                                <strong>S/ ${o.precio_venta_pen.toFixed(2)}</strong>
+                                <strong>S/ ${manoObraPen.toFixed(2)}</strong>
                             </div>
                             <div class="a4-total-row">
                                 <span>Repuestos Utilizados</span>
-                                <strong>S/ 0.00</strong>
+                                <strong>S/ ${totalRepuestoPen.toFixed(2)}</strong>
                             </div>
                             <div class="dotted-divider"></div>
                             <div class="a4-total-row grand-total">

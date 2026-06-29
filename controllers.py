@@ -35,17 +35,25 @@ async def get_exchange_rate(db):
 # ==========================================
 
 async def get_dashboard_stats(db):
-    # Today's sales
+    # Today's sales (ventas + support orders delivered today)
     today = datetime.now().strftime('%Y-%m-%d')
-    sales_today = await db.query(
+    sales_today_res = await db.query(
         "SELECT SUM(total_usd) as total_usd, SUM(total_pen) as total_pen, COUNT(*) as count FROM ventas WHERE date(fecha) = date(?)",
         [today]
     )
+    support_today_res = await db.query(
+        "SELECT SUM(precio_venta_usd) as usd, SUM(precio_venta_pen) as pen, COUNT(*) as count FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) = date(?)",
+        [today]
+    )
     
-    # Month's sales
+    # Month's sales (ventas + support orders delivered this month)
     current_month = datetime.now().strftime('%Y-%m')
-    sales_month = await db.query(
+    sales_month_res = await db.query(
         "SELECT SUM(total_usd) as total_usd, SUM(total_pen) as total_pen, COUNT(*) as count FROM ventas WHERE strftime('%Y-%m', fecha) = ?",
+        [current_month]
+    )
+    support_month_res = await db.query(
+        "SELECT SUM(precio_venta_usd) as usd, SUM(precio_venta_pen) as pen, COUNT(*) as count FROM ordenes_servicio WHERE estado = 'Entregado' AND strftime('%Y-%m', fecha_entrega) = ?",
         [current_month]
     )
 
@@ -77,9 +85,9 @@ async def get_dashboard_stats(db):
     # Recent support orders (last 5)
     recent_support = await db.query(
         """
-        SELECT o.*, c.nombre as cliente_nombre 
+        SELECT o.*, COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre 
         FROM ordenes_servicio o 
-        JOIN contactos c ON o.contacto_id = c.id 
+        LEFT JOIN contactos c ON o.contacto_id = c.id 
         ORDER BY o.fecha_registro DESC LIMIT 5
         """
     )
@@ -90,11 +98,16 @@ async def get_dashboard_stats(db):
         "SELECT estado, COUNT(*) as count FROM ordenes_servicio GROUP BY estado"
     )
 
-    # Monthly cash flow (last 6 months sales)
+    # Monthly cash flow (last 6 months: sales + delivered support)
     monthly_flow = await db.query(
         """
-        SELECT strftime('%Y-%m', fecha) as mes, SUM(total_pen) as total_pen, SUM(total_usd) as total_usd
-        FROM ventas 
+        SELECT mes, SUM(pen) as total_pen, SUM(usd) as total_usd
+        FROM (
+            SELECT strftime('%Y-%m', fecha) as mes, total_pen as pen, total_usd as usd FROM ventas
+            UNION ALL
+            SELECT strftime('%Y-%m', fecha_entrega) as mes, precio_venta_pen as pen, precio_venta_usd as usd FROM ordenes_servicio WHERE estado = 'Entregado'
+        )
+        WHERE mes IS NOT NULL
         GROUP BY mes 
         ORDER BY mes DESC 
         LIMIT 6
@@ -103,14 +116,14 @@ async def get_dashboard_stats(db):
 
     return {
         "sales_today": {
-            "usd": sales_today[0]['total_usd'] or 0.0,
-            "pen": sales_today[0]['total_pen'] or 0.0,
-            "count": sales_today[0]['count'] or 0
+            "usd": (sales_today_res[0]['total_usd'] or 0.0) + (support_today_res[0]['usd'] or 0.0),
+            "pen": (sales_today_res[0]['total_pen'] or 0.0) + (support_today_res[0]['pen'] or 0.0),
+            "count": (sales_today_res[0]['count'] or 0) + (support_today_res[0]['count'] or 0)
         },
         "sales_month": {
-            "usd": sales_month[0]['total_usd'] or 0.0,
-            "pen": sales_month[0]['total_pen'] or 0.0,
-            "count": sales_month[0]['count'] or 0
+            "usd": (sales_month_res[0]['total_usd'] or 0.0) + (support_month_res[0]['usd'] or 0.0),
+            "pen": (sales_month_res[0]['total_pen'] or 0.0) + (support_month_res[0]['pen'] or 0.0),
+            "count": (sales_month_res[0]['count'] or 0) + (support_month_res[0]['count'] or 0)
         },
         "active_support": active_support[0]['count'] or 0,
         "accounts_receivable": {
@@ -456,17 +469,54 @@ async def delete_producto(db, id):
 async def list_ordenes(db):
     return await db.query(
         """
-        SELECT o.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.numero_documento as cliente_documento
+        SELECT o.*, 
+               COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre, 
+               COALESCE(c.telefono, o.cliente_telefono) as cliente_telefono, 
+               COALESCE(c.numero_documento, o.cliente_documento) as cliente_documento
         FROM ordenes_servicio o 
-        JOIN contactos c ON o.contacto_id = c.id 
+        LEFT JOIN contactos c ON o.contacto_id = c.id 
         ORDER BY o.id DESC
         """
     )
 
 async def create_orden(db, data):
     contacto_id = data.get('cliente_id') or data.get('contacto_id') # handle both key names
-    if not contacto_id:
-        return {"success": False, "error": "Seleccione un cliente/contacto"}
+    
+    # Check if contact is manual or if ID is invalid/null
+    is_manual = False
+    if not contacto_id or contacto_id == 'manual' or str(contacto_id) == '0':
+        contacto_id = None
+        is_manual = True
+
+    cliente_nombre = data.get('cliente_nombre')
+    cliente_telefono = data.get('cliente_telefono')
+    cliente_email = data.get('cliente_email')
+    cliente_tipo_documento = data.get('cliente_tipo_documento')
+    cliente_documento = data.get('cliente_documento')
+
+    if is_manual and not cliente_nombre:
+        return {"success": False, "error": "Debe seleccionar un cliente o ingresar el nombre del cliente manualmente"}
+
+    repuesto_id = data.get('repuesto_id')
+    repuesto_cantidad = int(data.get('repuesto_cantidad', 0)) if repuesto_id else 0
+    repuesto_costo_usd = 0.0
+    repuesto_costo_pen = 0.0
+
+    if repuesto_id:
+        # Check stock and get cost
+        prod_res = await db.query("SELECT * FROM productos WHERE id = ?", [repuesto_id])
+        if not prod_res:
+            return {"success": False, "error": "El repuesto seleccionado no existe en el inventario"}
+        prod = prod_res[0]
+        
+        if prod['stock_actual'] < repuesto_cantidad:
+            return {"success": False, "error": f"Stock insuficiente para el repuesto '{prod['nombre']}'. Disponible: {prod['stock_actual']}"}
+        
+        repuesto_costo_usd = prod['costo_usd'] or 0.0
+        repuesto_costo_pen = prod['costo_pen'] or 0.0
+        
+        # Discount stock
+        await db.execute("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?", [repuesto_cantidad, repuesto_id])
 
     now = now_timestamp()
     
@@ -476,8 +526,10 @@ async def create_orden(db, data):
         INSERT INTO ordenes_servicio (
             contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada, 
             contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd, 
-            costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro
-        ) VALUES (?, ?, ?, ?, ?, ?, 'Recibido', ?, ?, ?, ?, ?, ?, ?)
+            costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro,
+            cliente_nombre, cliente_telefono, cliente_email, cliente_tipo_documento, cliente_documento,
+            repuesto_id, repuesto_cantidad, repuesto_costo_usd, repuesto_costo_pen
+        ) VALUES (?, ?, ?, ?, ?, ?, 'Recibido', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             contacto_id,
@@ -492,7 +544,16 @@ async def create_orden(db, data):
             data.get('costo_estimado_pen', 0.0),
             data.get('precio_venta_usd', 0.0),
             data.get('precio_venta_pen', 0.0),
-            now
+            now,
+            cliente_nombre,
+            cliente_telefono,
+            cliente_email,
+            cliente_tipo_documento,
+            cliente_documento,
+            repuesto_id,
+            repuesto_cantidad,
+            repuesto_costo_usd,
+            repuesto_costo_pen
         ]
     )
 
@@ -512,7 +573,7 @@ async def create_orden(db, data):
     return {"success": True, "message": "Orden de servicio técnico registrada", "order_id": order_id}
 
 async def update_orden_estado(db, id, data):
-    current = await db.query("SELECT estado FROM ordenes_servicio WHERE id = ?", [id])
+    current = await db.query("SELECT estado, repuesto_id, repuesto_cantidad FROM ordenes_servicio WHERE id = ?", [id])
     if not current:
         return {"success": False, "error": "Orden no encontrada"}
     
@@ -520,6 +581,18 @@ async def update_orden_estado(db, id, data):
     new_state = data.get('estado')
     notas = data.get('notas', '')
     now = now_timestamp()
+
+    # Inventory adjustments when transitioning to or from 'Sin Reparación'
+    if new_state == 'Sin Reparación' and prev_state != 'Sin Reparación':
+        rep_id = current[0]['repuesto_id']
+        rep_qty = current[0]['repuesto_cantidad']
+        if rep_id and rep_qty > 0:
+            await db.execute("UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?", [rep_qty, rep_id])
+    elif prev_state == 'Sin Reparación' and new_state != 'Sin Reparación':
+        rep_id = current[0]['repuesto_id']
+        rep_qty = current[0]['repuesto_cantidad']
+        if rep_id and rep_qty > 0:
+            await db.execute("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?", [rep_qty, rep_id])
 
     # Determine update attributes
     tecnico_asignado = data.get('tecnico_asignado')
@@ -581,10 +654,16 @@ async def update_orden_estado(db, id, data):
 async def get_orden_detail(db, id):
     order = await db.query(
         """
-        SELECT o.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, 
-               c.email as cliente_email, c.tipo_documento as cliente_tipo_documento, c.numero_documento as cliente_documento
+        SELECT o.*, 
+               COALESCE(c.nombre, o.cliente_nombre) as cliente_nombre, 
+               COALESCE(c.telefono, o.cliente_telefono) as cliente_telefono, 
+               COALESCE(c.email, o.cliente_email) as cliente_email, 
+               COALESCE(c.tipo_documento, o.cliente_tipo_documento) as cliente_tipo_documento, 
+               COALESCE(c.numero_documento, o.cliente_documento) as cliente_documento,
+               p.nombre as repuesto_nombre, p.codigo as repuesto_codigo
         FROM ordenes_servicio o 
-        JOIN contactos c ON o.contacto_id = c.id 
+        LEFT JOIN contactos c ON o.contacto_id = c.id 
+        LEFT JOIN productos p ON o.repuesto_id = p.id
         WHERE o.id = ?
         """, [id]
     )
@@ -1356,9 +1435,14 @@ async def calcular_reporte(db, start_date, end_date):
     c_pen = compras_res[0]['pen'] or 0.0
     c_usd = compras_res[0]['usd'] or 0.0
 
-    # 4. Soporte Técnico - Egresos (costo_estimado de ordenes entregadas)
+    # 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas)
     soporte_egr_res = await db.query(
-        "SELECT SUM(costo_estimado_pen) as pen, SUM(costo_estimado_usd) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)",
+        """
+        SELECT SUM(costo_estimado_pen + COALESCE(repuesto_costo_pen * repuesto_cantidad, 0)) as pen, 
+               SUM(costo_estimado_usd + COALESCE(repuesto_costo_usd * repuesto_cantidad, 0)) as usd 
+        FROM ordenes_servicio 
+        WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)
+        """,
         [start_date, end_date]
     )
     s_egr_pen = soporte_egr_res[0]['pen'] or 0.0

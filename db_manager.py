@@ -59,6 +59,81 @@ class DatabaseManager:
             return [dict(row) for row in rows]
 
     async def init_db(self):
+        # Self-healing migrations for existing tables (run unconditionally)
+        try:
+            # Check if table exists
+            table_check = await self.query("SELECT name FROM sqlite_master WHERE type='table' AND name='ordenes_servicio'")
+            if table_check:
+                cols = await self.query("PRAGMA table_info(ordenes_servicio)")
+                col_names = [col['name'] for col in cols]
+                if 'cliente_nombre' not in col_names:
+                    # SQLite table reconstruction migration to make contacto_id nullable and add new columns
+                    migration_queries = [
+                        "ALTER TABLE ordenes_servicio RENAME TO ordenes_servicio_old",
+                        """
+                        CREATE TABLE ordenes_servicio (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            contacto_id INTEGER,
+                            equipo_modelo TEXT NOT NULL,
+                            equipo_serie_imei TEXT NOT NULL,
+                            estado_estetico TEXT,
+                            falla_reportada TEXT NOT NULL,
+                            contrasena TEXT,
+                            estado TEXT NOT NULL,
+                            notas_tecnico TEXT,
+                            tecnico_asignado TEXT,
+                            costo_estimado_usd REAL DEFAULT 0.0,
+                            costo_estimado_pen REAL DEFAULT 0.0,
+                            precio_venta_usd REAL DEFAULT 0.0,
+                            precio_venta_pen REAL DEFAULT 0.0,
+                            fecha_registro TEXT NOT NULL,
+                            fecha_entrega TEXT,
+                            garantia_servicio TEXT DEFAULT 'Sin garantía',
+                            cliente_nombre TEXT,
+                            cliente_telefono TEXT,
+                            cliente_email TEXT,
+                            cliente_tipo_documento TEXT,
+                            cliente_documento TEXT,
+                            repuesto_id INTEGER,
+                            repuesto_cantidad INTEGER DEFAULT 0,
+                            repuesto_costo_usd REAL DEFAULT 0.0,
+                            repuesto_costo_pen REAL DEFAULT 0.0,
+                            FOREIGN KEY(contacto_id) REFERENCES contactos(id),
+                            FOREIGN KEY(repuesto_id) REFERENCES productos(id)
+                        );
+                        """,
+                        """
+                        INSERT INTO ordenes_servicio (
+                            id, contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada,
+                            contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd,
+                            costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro, fecha_entrega, garantia_servicio
+                        )
+                        SELECT 
+                            id, contacto_id, equipo_modelo, equipo_serie_imei, estado_estetico, falla_reportada,
+                            contrasena, estado, notas_tecnico, tecnico_asignado, costo_estimado_usd,
+                            costo_estimado_pen, precio_venta_usd, precio_venta_pen, fecha_registro, fecha_entrega, garantia_servicio
+                        FROM ordenes_servicio_old;
+                        """,
+                        "DROP TABLE ordenes_servicio_old"
+                    ]
+                    for mq in migration_queries:
+                        await self.execute(mq)
+        except Exception as e:
+            print(f"Error migrating table ordenes_servicio: {e}")
+
+        try:
+            await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'")
+        except Exception:
+            pass
+        try:
+            await self.execute("ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await self.execute("ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'")
+        except Exception:
+            pass
+
         # Quick check if database is already initialized
         try:
             await self.query("SELECT 1 FROM reportes_financieros LIMIT 1")
@@ -113,7 +188,7 @@ class DatabaseManager:
             """
             CREATE TABLE IF NOT EXISTS ordenes_servicio (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                contacto_id INTEGER NOT NULL,
+                contacto_id INTEGER,
                 equipo_modelo TEXT NOT NULL,
                 equipo_serie_imei TEXT NOT NULL,
                 estado_estetico TEXT,
@@ -129,7 +204,17 @@ class DatabaseManager:
                 fecha_registro TEXT NOT NULL,
                 fecha_entrega TEXT,
                 garantia_servicio TEXT DEFAULT 'Sin garantía',
-                FOREIGN KEY(contacto_id) REFERENCES contactos(id)
+                cliente_nombre TEXT,
+                cliente_telefono TEXT,
+                cliente_email TEXT,
+                cliente_tipo_documento TEXT,
+                cliente_documento TEXT,
+                repuesto_id INTEGER,
+                repuesto_cantidad INTEGER DEFAULT 0,
+                repuesto_costo_usd REAL DEFAULT 0.0,
+                repuesto_costo_pen REAL DEFAULT 0.0,
+                FOREIGN KEY(contacto_id) REFERENCES contactos(id),
+                FOREIGN KEY(repuesto_id) REFERENCES productos(id)
             );
             """,
             """
@@ -280,19 +365,8 @@ class DatabaseManager:
             for q in queries:
                 await self.execute(q)
 
-            # Self-healing migrations for existing tables
-            try:
-                await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'")
-            except Exception:
-                pass
-            try:
-                await self.execute("ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0")
-            except Exception:
-                pass
-            try:
-                await self.execute("ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'")
-            except Exception:
-                pass
+            # Migrations already performed at startup
+            pass
 
             # Seed initial categories if table is empty
             cat_count = await self.query("SELECT COUNT(*) as count FROM categorias")
