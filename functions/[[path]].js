@@ -1026,7 +1026,9 @@ async function initDb(db) {
   const migrations = [
     "ALTER TABLE ordenes_servicio ADD COLUMN garantia_servicio TEXT DEFAULT 'Sin garantía'",
     "ALTER TABLE productos ADD COLUMN requiere_serie INTEGER DEFAULT 0",
-    "ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'"
+    "ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'",
+    "ALTER TABLE ordenes_servicio ADD COLUMN tipo_comprobante TEXT",
+    "ALTER TABLE ordenes_servicio ADD COLUMN numero_comprobante TEXT"
   ];
   for (const m of migrations) {
     try {
