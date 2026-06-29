@@ -653,6 +653,7 @@ async function processPOSSale() {
             appState.cart = [];
             updateCartUI();
             openReceiptPrintModal(result.venta_id);
+            renderPOS(); // Reload POS grid products
         } else {
             showNotification(result.error || "Ocurrió un error al procesar venta", 'error');
         }
@@ -2403,7 +2404,7 @@ async function openCreateProductModal() {
                     </div>
                     <div class="form-group">
                         <label>Stock Inicial</label>
-                        <input type="number" id="prod-stock" class="form-control" value="0">
+                        <input type="number" id="prod-stock" class="form-control" value="0" disabled>
                     </div>
                     <div class="form-group">
                         <label>Stock Mínimo</label>
@@ -2447,9 +2448,6 @@ async function openCreateProductModal() {
         checkboxEl.addEventListener('change', () => {
             if (checkboxEl.checked) {
                 stockInputEl.value = '0';
-                stockInputEl.disabled = true;
-            } else {
-                stockInputEl.disabled = false;
             }
         });
     } catch (e) {
@@ -2514,7 +2512,7 @@ function openEditProductModal(p) {
                     </div>
                     <div class="form-group">
                         <label>Stock Actual</label>
-                        <input type="number" id="edit-prod-stock" class="form-control" value="${p.stock_actual}">
+                        <input type="number" id="edit-prod-stock" class="form-control" value="${p.stock_actual}" disabled>
                     </div>
                     <div class="form-group">
                         <label>Stock Mínimo</label>
@@ -2555,10 +2553,6 @@ function openEditProductModal(p) {
 
         const checkboxEl = document.getElementById('edit-prod-requiere-serie');
         const stockInputEl = document.getElementById('edit-prod-stock');
-        
-        if (p.requiere_serie === 1) {
-            stockInputEl.disabled = true;
-        }
 
         checkboxEl.addEventListener('change', () => {
             if (checkboxEl.checked) {
@@ -2566,9 +2560,6 @@ function openEditProductModal(p) {
                     showNotification("Al activar el requerimiento de serie, el stock inicial se establecerá en 0 para ser ingresado por compras.", "info");
                     stockInputEl.value = '0';
                 }
-                stockInputEl.disabled = true;
-            } else {
-                stockInputEl.disabled = false;
             }
         });
     });

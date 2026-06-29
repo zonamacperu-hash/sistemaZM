@@ -435,7 +435,7 @@ async def update_producto(db, id, data):
     await db.execute(
         """
         UPDATE productos 
-        SET codigo = ?, nombre = ?, categoria_id = ?, stock_minimo = ?, stock_actual = ?, 
+        SET codigo = ?, nombre = ?, categoria_id = ?, stock_minimo = ?, 
             costo_usd = ?, costo_pen = ?, precio_venta_usd = ?, precio_venta_pen = ?, requiere_serie = ?
         WHERE id = ?
         """,
@@ -444,7 +444,6 @@ async def update_producto(db, id, data):
             data.get('nombre'),
             data.get('categoria_id'),
             data.get('stock_minimo', 0),
-            data.get('stock_actual', 0),
             data.get('costo_usd', 0.0),
             data.get('costo_pen', 0.0),
             data.get('precio_venta_usd', 0.0),

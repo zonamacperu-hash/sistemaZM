@@ -586,7 +586,7 @@ async function createProducto(db, data) {
 async function updateProducto(db, id, data) {
   await db.prepare(`
     UPDATE productos 
-    SET codigo = ?, nombre = ?, categoria_id = ?, stock_minimo = ?, stock_actual = ?, 
+    SET codigo = ?, nombre = ?, categoria_id = ?, stock_minimo = ?, 
         costo_usd = ?, costo_pen = ?, precio_venta_usd = ?, precio_venta_pen = ?, requiere_serie = ?
     WHERE id = ?
   `).bind(
@@ -594,7 +594,6 @@ async function updateProducto(db, id, data) {
     data.nombre,
     data.categoria_id || null,
     data.stock_minimo || 0,
-    data.stock_actual || 0,
     parseFloat(data.costo_usd || "0.0"),
     parseFloat(data.costo_pen || "0.0"),
     parseFloat(data.precio_venta_usd || "0.0"),
