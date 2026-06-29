@@ -3,7 +3,9 @@ import json
 from datetime import datetime, timedelta
 
 def seed():
-    conn = sqlite3.connect('sistema_zm.db')
+    import os
+    db_path = os.getenv('DATABASE_URL', 'sistema_zm.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     tables_to_clear = [

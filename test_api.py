@@ -4,9 +4,14 @@ import sys
 
 BASE_URL = "http://localhost:8000"
 
+TOKEN = None
+
 def send_post(endpoint, payload):
     url = f"{BASE_URL}{endpoint}"
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
+    headers = {'Content-Type': 'application/json'}
+    if TOKEN:
+        headers['Authorization'] = f"Bearer {TOKEN}"
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers)
     try:
         with urllib.request.urlopen(req) as res:
             return json.loads(res.read().decode('utf-8'))
@@ -16,15 +21,26 @@ def send_post(endpoint, payload):
 
 def send_get(endpoint):
     url = f"{BASE_URL}{endpoint}"
+    headers = {}
+    if TOKEN:
+        headers['Authorization'] = f"Bearer {TOKEN}"
+    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(url) as res:
+        with urllib.request.urlopen(req) as res:
             return json.loads(res.read().decode('utf-8'))
     except Exception as e:
         print(f"Error on GET {endpoint}: {e}")
         return None
 
 def test_flow():
+    global TOKEN
     print("=== INICIANDO INTEGRATION TESTS DE API UNIFICADA ZONA MAC ===")
+
+    # Login to obtain Token
+    login_res = send_post("/api/login", {"username": "admin", "password": "zmperu2026"})
+    assert login_res.get("success") == True, f"Login failed: {login_res.get('error')}"
+    TOKEN = login_res.get("token")
+    print(f"Sesión iniciada con éxito. Token: {TOKEN}")
 
     # 1. Test Contact Registration (type: Cliente)
     print("\n1. Test: Registro de Contacto Cliente...")

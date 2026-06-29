@@ -221,6 +221,8 @@ class DatabaseManager:
                 repuesto_cantidad INTEGER DEFAULT 0,
                 repuesto_costo_usd REAL DEFAULT 0.0,
                 repuesto_costo_pen REAL DEFAULT 0.0,
+                tipo_comprobante TEXT,
+                numero_comprobante TEXT,
                 FOREIGN KEY(contacto_id) REFERENCES contactos(id),
                 FOREIGN KEY(repuesto_id) REFERENCES productos(id)
             );

@@ -27,6 +27,13 @@ class APIRequestHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed_url.query)
 
         if path.startswith('/api/'):
+            auth_header = self.headers.get('Authorization')
+            token = None
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+            if not controllers.verify_token(token):
+                self.send_error_response(401, "No autorizado")
+                return
             asyncio.run(self.handle_api_get(path, query))
         else:
             self.handle_static_file(path)
@@ -46,6 +53,18 @@ class APIRequestHandler(BaseHTTPRequestHandler):
                 data = json.loads(body_data.decode('utf-8')) if body_data else {}
             except json.JSONDecodeError:
                 data = {}
+
+            if path == '/api/login':
+                asyncio.run(self.handle_api_post(path, query, data))
+                return
+
+            auth_header = self.headers.get('Authorization')
+            token = None
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+            if not controllers.verify_token(token):
+                self.send_error_response(401, "No autorizado")
+                return
 
             asyncio.run(self.handle_api_post(path, query, data))
         else:
@@ -116,7 +135,9 @@ class APIRequestHandler(BaseHTTPRequestHandler):
         try:
             result = None
             
-            if path == '/api/config/update':
+            if path == '/api/login':
+                result = await controllers.login_user(db, data)
+            elif path == '/api/config/update':
                 result = await controllers.update_config(db, data)
             elif path == '/api/contacts/create':
                 result = await controllers.create_contacto(db, data)

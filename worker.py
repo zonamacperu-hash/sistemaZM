@@ -45,6 +45,15 @@ class Default(WorkerEntrypoint):
         query = parse_qs(url.query)
         method = request.method
 
+        # Auth check
+        if path.startswith('/api/') and path != '/api/login':
+            auth_header = request.headers.get('Authorization')
+            token = None
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+            if not controllers.verify_token(token):
+                return json_response(401, {"success": False, "error": "No autorizado"})
+
         try:
             if method == "GET":
                 if path == '/api/dashboard':
@@ -95,7 +104,9 @@ class Default(WorkerEntrypoint):
                 except json.JSONDecodeError:
                     data = {}
 
-                if path == '/api/config/update':
+                if path == '/api/login':
+                    result = await controllers.login_user(db, data)
+                elif path == '/api/config/update':
                     result = await controllers.update_config(db, data)
                 elif path == '/api/contacts/create':
                     result = await controllers.create_contacto(db, data)

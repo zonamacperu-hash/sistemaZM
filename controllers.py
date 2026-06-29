@@ -1425,6 +1425,8 @@ async def create_compra(db, data):
     )
     
     # Get last insert id
+    last_id_res = await db.query("SELECT last_insert_rowid() as id")
+    compra_id = last_id_res[0]['id']
     return {"success": True, "message": "Compra registrada exitosamente", "compra_id": compra_id, "documento": doc_number}
 
 
@@ -1457,11 +1459,12 @@ async def calcular_reporte(db, start_date, end_date):
     c_pen = compras_res[0]['pen'] or 0.0
     c_usd = compras_res[0]['usd'] or 0.0
 
-    # 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas)
+    # 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas si el repuesto NO es del inventario)
+    # Repuestos de inventario (repuesto_id IS NOT NULL) ya se registran como egresos en Compras.
     soporte_egr_res = await db.query(
         """
-        SELECT SUM(costo_estimado_pen + COALESCE(repuesto_costo_pen * repuesto_cantidad, 0)) as pen, 
-               SUM(costo_estimado_usd + COALESCE(repuesto_costo_usd * repuesto_cantidad, 0)) as usd 
+        SELECT SUM(costo_estimado_pen + CASE WHEN repuesto_id IS NULL THEN COALESCE(repuesto_costo_pen * repuesto_cantidad, 0) ELSE 0 END) as pen, 
+               SUM(costo_estimado_usd + CASE WHEN repuesto_id IS NULL THEN COALESCE(repuesto_costo_usd * repuesto_cantidad, 0) ELSE 0 END) as usd 
         FROM ordenes_servicio 
         WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)
         """,
@@ -1560,5 +1563,55 @@ async def lazy_generar_reportes(db):
             """,
             [f"{fpy_str} al {lpy_str}", fpy_str, lpy_str, rep['ingresos_pen'], rep['ingresos_usd'], rep['egresos_pen'], rep['egresos_usd'], rep['ganancia_pen'], rep['ganancia_usd'], now_str]
         )
+
+
+
+# ==========================================
+# 13. MÓDULO DE AUTENTICACIÓN (ADMIN)
+# ==========================================
+
+SECRET_KEY = "zmperu2026_secret_key_998877"
+
+def generate_token(username):
+    import hashlib
+    import time
+    timestamp = str(int(time.time()))
+    raw = f"{username}:{timestamp}:{SECRET_KEY}"
+    h = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    return f"{username}.{timestamp}.{h}"
+
+def verify_token(token):
+    if not token:
+        return False
+    parts = token.split('.')
+    if len(parts) != 3:
+        return False
+    username, timestamp, h = parts
+    if username != 'admin':
+        return False
+    
+    import hashlib
+    import time
+    # Check expiration (7 days = 604800 seconds)
+    try:
+        ts = int(timestamp)
+        if int(time.time()) - ts > 604800:
+            return False
+    except ValueError:
+        return False
+        
+    raw = f"{username}:{timestamp}:{SECRET_KEY}"
+    expected_h = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    return h == expected_h
+
+async def login_user(db, data):
+    username = data.get('username')
+    password = data.get('password')
+    if username == 'admin' and password == 'zmperu2026':
+        token = generate_token(username)
+        return {"success": True, "token": token, "message": "Inicio de sesión exitoso"}
+    else:
+        return {"success": False, "error": "Usuario o contraseña incorrectos"}
+
 
 

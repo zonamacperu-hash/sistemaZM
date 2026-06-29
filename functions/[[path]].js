@@ -50,6 +50,19 @@ export async function onRequest(context) {
   const query = Object.fromEntries(url.searchParams.entries());
   const method = request.method;
 
+  // Authentication check for API requests (except login)
+  if (path.startsWith('/api/') && path !== '/api/login') {
+    const authHeader = request.headers.get('Authorization');
+    let token = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+    const isValid = await verifyToken(token);
+    if (!isValid) {
+      return jsonResponse(401, { success: false, error: "No autorizado" });
+    }
+  }
+
   try {
     if (method === "GET") {
       if (path === '/api/dashboard') {
@@ -202,6 +215,11 @@ export async function onRequest(context) {
         data = await request.json();
       } catch (e) {}
 
+      if (path === '/api/login') {
+        const result = await loginUser(env.DB, data);
+        return jsonResponse(200, result);
+      }
+      
       if (path === '/api/config/update') {
         const result = await updateConfig(env.DB, data);
         return jsonResponse(200, result);
@@ -1103,6 +1121,8 @@ async function initDb(db) {
         repuesto_cantidad INTEGER DEFAULT 0,
         repuesto_costo_usd REAL DEFAULT 0.0,
         repuesto_costo_pen REAL DEFAULT 0.0,
+        tipo_comprobante TEXT,
+        numero_comprobante TEXT,
         FOREIGN KEY(contacto_id) REFERENCES contactos(id),
         FOREIGN KEY(repuesto_id) REFERENCES productos(id)
     );`,
@@ -1759,9 +1779,10 @@ async function calcularReporte(db, start_date, end_date) {
   const c_pen = compras?.pen || 0.0;
   const c_usd = compras?.usd || 0.0;
 
-  // 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas)
+  // 4. Soporte Técnico - Egresos (costo_estimado + repuesto_costo de ordenes entregadas si el repuesto NO es del inventario)
+  // Repuestos de inventario (repuesto_id IS NOT NULL) ya se registran como egresos en Compras.
   const soporteEgr = await db.prepare(
-    "SELECT SUM(costo_estimado_pen + COALESCE(repuesto_costo_pen * repuesto_cantidad, 0)) as pen, SUM(costo_estimado_usd + COALESCE(repuesto_costo_usd * repuesto_cantidad, 0)) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
+    "SELECT SUM(costo_estimado_pen + CASE WHEN repuesto_id IS NULL THEN COALESCE(repuesto_costo_pen * repuesto_cantidad, 0) ELSE 0 END) as pen, SUM(costo_estimado_usd + CASE WHEN repuesto_id IS NULL THEN COALESCE(repuesto_costo_usd * repuesto_cantidad, 0) ELSE 0 END) as usd FROM ordenes_servicio WHERE estado = 'Entregado' AND date(fecha_entrega) >= date(?) AND date(fecha_entrega) <= date(?)"
   ).bind(start_date, end_date).first();
   const s_egr_pen = soporteEgr?.pen || 0.0;
   const s_egr_usd = soporteEgr?.usd || 0.0;
@@ -1850,6 +1871,58 @@ async function lazyGenerarReportes(db) {
       INSERT INTO reportes_financieros (tipo, rango_fechas, fecha_inicio, fecha_fin, ingresos, ingresos_usd, egresos, egresos_usd, ganancia_neta, ganancia_neta_usd, creado_en)
       VALUES ('Anual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(`${fpyStr} al ${lpyStr}`, fpyStr, lpyStr, rep.ingresos_pen, rep.ingresos_usd, rep.egresos_pen, rep.egresos_usd, rep.ganancia_pen, rep.ganancia_usd, nowStr).run();
+  }
+}
+
+// ============================================================================
+// 14. ADMIN AUTHENTICATION
+// ============================================================================
+
+const SECRET_KEY = "zmperu2026_secret_key_998877";
+
+async function sha256(message) {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
+
+async function generateToken(username) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const raw = `${username}:${timestamp}:${SECRET_KEY}`;
+  const h = await sha256(raw);
+  return `${username}.${timestamp}.${h}`;
+}
+
+async function verifyToken(token) {
+  if (!token) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const [username, timestamp, h] = parts;
+  if (username !== 'admin') return false;
+  
+  try {
+    const ts = parseInt(timestamp);
+    const now = Math.floor(Date.now() / 1000);
+    if (now - ts > 604800) return false; // 7 days
+  } catch (e) {
+    return false;
+  }
+  
+  const raw = `${username}:${timestamp}:${SECRET_KEY}`;
+  const expectedH = await sha256(raw);
+  return h === expectedH;
+}
+
+async function loginUser(db, data) {
+  const username = data.username;
+  const password = data.password;
+  if (username === 'admin' && password === 'zmperu2026') {
+    const token = await generateToken(username);
+    return { success: true, token, message: "Inicio de sesión exitoso" };
+  } else {
+    return { success: false, error: "Usuario o contraseña incorrectos" };
   }
 }
 

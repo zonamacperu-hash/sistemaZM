@@ -1362,3 +1362,92 @@ body.dark-theme .icon-moon { display: none; }
     gap: 16px;
 }
 
+/* ==========================================================================
+   AUTHENTICATION SYSTEM (LOGIN)
+   ========================================================================== */
+#login-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    width: 100vw;
+    background-color: var(--bg-primary);
+    background-image: radial-gradient(circle at 10% 20%, rgba(10, 132, 255, 0.05) 0%, transparent 40%),
+                      radial-gradient(circle at 90% 80%, rgba(48, 209, 88, 0.03) 0%, transparent 40%);
+    padding: 20px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 99999;
+}
+
+.login-card {
+    background-color: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-main);
+    width: 100%;
+    max-width: 420px;
+    padding: 40px;
+    animation: loginFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.login-logo-img {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 15px;
+    border: 2px solid var(--border-color);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.login-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    letter-spacing: -0.5px;
+}
+
+.login-subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.login-error {
+    background-color: rgba(255, 69, 58, 0.1);
+    border: 1px solid rgba(255, 69, 58, 0.2);
+    border-radius: var(--border-radius-sm);
+    padding: 10px;
+    margin-top: 15px;
+    text-align: center;
+    color: var(--danger-color);
+    font-size: 13px;
+    animation: loginShake 0.4s ease-in-out;
+}
+
+@keyframes loginFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes loginShake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+}
+

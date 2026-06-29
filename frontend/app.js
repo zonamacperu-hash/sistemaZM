@@ -20,6 +20,12 @@ async function fetchAPI(endpoint, options = {}) {
         'Content-Type': 'application/json'
     };
     
+    // Attach authorization token if present
+    const token = localStorage.getItem('zm_session_token');
+    if (token) {
+        defaultHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
     options.headers = { ...defaultHeaders, ...options.headers };
     if (options.body && typeof options.body === 'object') {
         options.body = JSON.stringify(options.body);
@@ -27,6 +33,11 @@ async function fetchAPI(endpoint, options = {}) {
 
     try {
         const response = await fetch(url, options);
+        if (response.status === 401) {
+            localStorage.removeItem('zm_session_token');
+            showLoginScreen();
+            throw new Error('Sesión no autorizada o expirada');
+        }
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.error || `HTTP error! status: ${response.status}`);
@@ -34,9 +45,92 @@ async function fetchAPI(endpoint, options = {}) {
         return await response.json();
     } catch (error) {
         console.error(`API Error on ${endpoint}:`, error);
-        showNotification(error.message || 'Error de conexión', 'error');
+        if (error.message !== 'Sesión no autorizada o expirada') {
+            showNotification(error.message || 'Error de conexión', 'error');
+        }
         throw error;
     }
+}
+
+// Authentication helper functions
+function checkAuthentication() {
+    return !!localStorage.getItem('zm_session_token');
+}
+
+function showLoginScreen() {
+    document.getElementById('login-container').style.display = 'flex';
+    const appContainer = document.querySelector('.app-container');
+    if (appContainer) appContainer.style.display = 'none';
+    
+    // Focus username input
+    setTimeout(() => {
+        const input = document.getElementById('login-username');
+        if (input) input.focus();
+    }, 100);
+}
+
+function hideLoginScreen() {
+    document.getElementById('login-container').style.display = 'none';
+    const appContainer = document.querySelector('.app-container');
+    if (appContainer) appContainer.style.display = 'flex';
+}
+
+async function submitLogin(event) {
+    event.preventDefault();
+    const usernameInput = document.getElementById('login-username').value.trim();
+    const passwordInput = document.getElementById('login-password').value;
+    const errorMsg = document.getElementById('login-error-msg');
+    
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: usernameInput, password: passwordInput })
+        });
+        const data = await res.json();
+        
+        if (data.success && data.token) {
+            localStorage.setItem('zm_session_token', data.token);
+            hideLoginScreen();
+            showNotification('Inicio de sesión exitoso');
+            
+            // Clean credentials form
+            document.getElementById('login-form').reset();
+            
+            // Initialize app data and render dashboard
+            await fetchExchangeRateAndConfig();
+            window.addEventListener('hashchange', handleRouting);
+            handleRouting();
+        } else {
+            if (errorMsg) {
+                errorMsg.innerText = data.error || 'Credenciales incorrectas';
+                errorMsg.style.display = 'block';
+                // Trigger shake animation on the login card
+                const card = document.querySelector('.login-card');
+                if (card) {
+                    card.style.animation = 'none';
+                    card.offsetHeight; /* trigger reflow */
+                    card.style.animation = 'loginShake 0.4s ease-in-out';
+                }
+            }
+        }
+    } catch (e) {
+        console.error(e);
+        if (errorMsg) {
+            errorMsg.innerText = 'Error al conectar con el servidor';
+            errorMsg.style.display = 'block';
+        }
+    }
+}
+
+function logout() {
+    localStorage.removeItem('zm_session_token');
+    showNotification('Sesión cerrada correctamente');
+    setTimeout(() => {
+        window.location.reload();
+    }, 500);
 }
 
 // UI Notification Toast
@@ -4717,6 +4811,11 @@ function printFinancialReport(rep) {
 
 window.addEventListener('DOMContentLoaded', async () => {
     initTheme();
+    if (!checkAuthentication()) {
+        showLoginScreen();
+        return;
+    }
+    hideLoginScreen();
     await fetchExchangeRateAndConfig();
     window.addEventListener('hashchange', handleRouting);
     handleRouting();
