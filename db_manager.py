@@ -133,6 +133,14 @@ class DatabaseManager:
             await self.execute("ALTER TABLE productos ADD COLUMN series_disponibles TEXT DEFAULT '[]'")
         except Exception:
             pass
+        try:
+            await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN tipo_comprobante TEXT")
+        except Exception:
+            pass
+        try:
+            await self.execute("ALTER TABLE ordenes_servicio ADD COLUMN numero_comprobante TEXT")
+        except Exception:
+            pass
 
         # Quick check if database is already initialized
         try:

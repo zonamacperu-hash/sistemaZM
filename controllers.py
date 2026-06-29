@@ -572,7 +572,7 @@ async def create_orden(db, data):
     return {"success": True, "message": "Orden de servicio técnico registrada", "order_id": order_id}
 
 async def update_orden_estado(db, id, data):
-    current = await db.query("SELECT estado, repuesto_id, repuesto_cantidad FROM ordenes_servicio WHERE id = ?", [id])
+    current = await db.query("SELECT estado, repuesto_id, repuesto_cantidad, tipo_comprobante, numero_comprobante FROM ordenes_servicio WHERE id = ?", [id])
     if not current:
         return {"success": False, "error": "Orden no encontrada"}
     
@@ -630,6 +630,25 @@ async def update_orden_estado(db, id, data):
     if new_state == 'Entregado':
         fecha_entrega_clause += ", fecha_entrega = ?"
         params.append(now)
+        
+        tipo_comprobante = data.get('tipo_comprobante') or 'Nota de Servicio'
+        if current[0].get('tipo_comprobante') == tipo_comprobante and current[0].get('numero_comprobante'):
+            numero_comprobante = current[0]['numero_comprobante']
+        else:
+            prefix = 'NS01'
+            if tipo_comprobante == 'Factura':
+                prefix = 'F001'
+            elif tipo_comprobante == 'Boleta':
+                prefix = 'B001'
+            
+            count_ventas = await db.query("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?", [tipo_comprobante])
+            count_ordenes = await db.query("SELECT COUNT(*) as count FROM ordenes_servicio WHERE tipo_comprobante = ? AND id != ?", [tipo_comprobante, id])
+            total_count = count_ventas[0]['count'] + count_ordenes[0]['count']
+            numero_comprobante = f"{prefix}-{str(total_count + 1).zfill(6)}"
+            
+        fecha_entrega_clause += ", tipo_comprobante = ?, numero_comprobante = ?"
+        params.append(tipo_comprobante)
+        params.append(numero_comprobante)
 
     params.append(id)
 
@@ -1013,9 +1032,13 @@ async def create_venta(db, data):
         prefix = 'B001'
     elif tipo_doc == 'Recibo por Honorarios':
         prefix = 'R001'
+    elif tipo_doc == 'Nota de Servicio':
+        prefix = 'NS01'
 
-    count_res = await db.query("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?", [tipo_doc])
-    doc_number = f"{prefix}-{str(count_res[0]['count'] + 1).zfill(8)}"
+    count_ventas = await db.query("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?", [tipo_doc])
+    count_ordenes = await db.query("SELECT COUNT(*) as count FROM ordenes_servicio WHERE tipo_comprobante = ?", [tipo_doc])
+    total_count = count_ventas[0]['count'] + count_ordenes[0]['count']
+    doc_number = f"{prefix}-{str(total_count + 1).zfill(6)}"
 
     total_usd = 0.0
     total_pen = 0.0

@@ -471,6 +471,7 @@ async function renderPOS() {
                             <option value="Nota de Venta">Nota de Venta</option>
                             <option value="Boleta">Boleta de Venta</option>
                             <option value="Factura">Factura (IGV 18%)</option>
+                            <option value="Nota de Servicio">Nota de Servicio</option>
                             <option value="Recibo por Honorarios">Recibo por Honorarios</option>
                         </select>
                     </div>
@@ -730,7 +731,7 @@ async function renderReparaciones() {
                 }
                 return `
                     <tr>
-                        <td><strong>#${o.id}</strong><br><small style="color: var(--text-secondary);">${o.fecha_registro.split('T')[0]}</small></td>
+                        <td><strong>#${o.id}</strong>${o.numero_comprobante ? `<br><small style="color: var(--accent-color); font-weight: bold;">${o.numero_comprobante}</small>` : ''}<br><small style="color: var(--text-secondary);">${o.fecha_registro.split('T')[0]}</small></td>
                         <td>${o.cliente_nombre}<br><small style="color: var(--text-secondary);">${o.cliente_telefono || ''}</small></td>
                         <td><strong>${o.equipo_modelo}</strong><br><small style="color: var(--text-secondary);">${o.equipo_serie_imei}</small></td>
                         <td>${o.falla_reportada}</td>
@@ -1888,6 +1889,7 @@ async function convertQuoteToSaleModal(quoteId) {
                             <option value="Nota de Venta">Nota de Venta</option>
                             <option value="Boleta">Boleta de Venta</option>
                             <option value="Factura">Factura (IGV 18%)</option>
+                            <option value="Nota de Servicio">Nota de Servicio</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -2234,6 +2236,13 @@ async function submitCreateOrder(event) {
     }
 }
 
+window.toggleUpdDocumentOptions = function(status) {
+    const container = document.getElementById('upd-document-options');
+    if (container) {
+        container.style.display = status === 'Entregado' ? 'block' : 'none';
+    }
+};
+
 async function openUpdateStatusModal(orderId) {
     try {
         const detail = await fetchAPI(`/api/orders/detail?id=${orderId}`);
@@ -2244,13 +2253,21 @@ async function openUpdateStatusModal(orderId) {
                 <p style="margin-bottom: 12px;">Actualizando el estado: <strong>${o.equipo_modelo}</strong></p>
                 <div class="form-group">
                     <label>Nuevo Estado Técnico *</label>
-                    <select id="upd-estado" class="form-control" required>
+                    <select id="upd-estado" class="form-control" required onchange="toggleUpdDocumentOptions(this.value)">
                         <option value="Recibido" ${o.estado === 'Recibido' ? 'selected' : ''}>Recibido</option>
                         <option value="En Diagnóstico" ${o.estado === 'En Diagnóstico' ? 'selected' : ''}>En Diagnóstico</option>
                         <option value="Esperando Repuesto" ${o.estado === 'Esperando Repuesto' ? 'selected' : ''}>Esperando Repuesto</option>
                         <option value="Reparado" ${o.estado === 'Reparado' ? 'selected' : ''}>Reparado</option>
                         <option value="Entregado" ${o.estado === 'Entregado' ? 'selected' : ''}>Entregado (Cierra orden)</option>
                         <option value="Sin Reparación" ${o.estado === 'Sin Reparación' ? 'selected' : ''}>Sin Reparación</option>
+                    </select>
+                </div>
+                <div class="form-group" id="upd-document-options" style="display: ${o.estado === 'Entregado' ? 'block' : 'none'};">
+                    <label>Generar Documento *</label>
+                    <select id="upd-tipo-comprobante" class="form-control">
+                        <option value="Nota de Servicio" ${o.tipo_comprobante === 'Nota de Servicio' ? 'selected' : ''}>Nota de Servicio</option>
+                        <option value="Boleta" ${o.tipo_comprobante === 'Boleta' ? 'selected' : ''}>Boleta de Venta</option>
+                        <option value="Factura" ${o.tipo_comprobante === 'Factura' ? 'selected' : ''}>Factura (IGV 18%)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -2293,8 +2310,9 @@ async function openUpdateStatusModal(orderId) {
 
 async function submitUpdateOrderStatus(event, orderId) {
     event.preventDefault();
+    const estadoVal = document.getElementById('upd-estado').value;
     const payload = {
-        estado: document.getElementById('upd-estado').value,
+        estado: estadoVal,
         tecnico_asignado: document.getElementById('upd-tecnico').value,
         precio_venta_usd: parseFloat(document.getElementById('upd-precio-usd').value) || 0.0,
         precio_venta_pen: parseFloat(document.getElementById('upd-precio-pen').value) || 0.0,
@@ -2302,6 +2320,9 @@ async function submitUpdateOrderStatus(event, orderId) {
         garantia_servicio: document.getElementById('upd-garantia-servicio').value,
         notas: document.getElementById('upd-bitacora-nota').value
     };
+    if (estadoVal === 'Entregado') {
+        payload.tipo_comprobante = document.getElementById('upd-tipo-comprobante').value;
+    }
 
     try {
         const res = await fetchAPI(`/api/orders/update-status?id=${orderId}`, {
@@ -2360,6 +2381,7 @@ async function openOrderDetailModal(orderId) {
                         <p><strong>Técnico Responsable:</strong> ${o.tecnico_asignado || 'No asignado'}</p>
                         <p><strong>Repuesto Utilizado:</strong> ${o.repuesto_nombre ? `${o.repuesto_nombre} (Cant: ${o.repuesto_cantidad})` : 'Ninguno'}</p>
                         <p><strong>Costo Estimado:</strong> S/ ${o.precio_venta_pen.toFixed(2)} ($ ${o.precio_venta_usd.toFixed(2)})</p>
+                        ${o.tipo_comprobante ? `<p><strong>Comprobante:</strong> ${o.tipo_comprobante} - ${o.numero_comprobante || ''}</p>` : ''}
                         <p><strong>Notas Técnicas Internas:</strong> ${o.notas_tecnico || 'Sin notas'}</p>
                     </div>
                     <div>
@@ -3096,9 +3118,9 @@ async function printReceipt(orderId) {
                             </div>
                         </div>
                         <div class="a4-comprobante-box delivery-box">
-                            <h3>CONSTANCIA DE ENTREGA</h3>
-                            <div class="doc-type">GARANTÍA DE SERVICIO</div>
-                            <div class="doc-number">#${String(o.id).padStart(5, '0')}</div>
+                            <h3>${o.tipo_comprobante === 'Factura' ? 'FACTURA ELECTRÓNICA' : o.tipo_comprobante === 'Boleta' ? 'BOLETA ELECTRÓNICA' : 'NOTA DE SERVICIO'}</h3>
+                            <div class="doc-type">${o.tipo_comprobante === 'Factura' ? 'FACTURA' : o.tipo_comprobante === 'Boleta' ? 'BOLETA DE VENTA' : 'NOTA DE SERVICIO'}</div>
+                            <div class="doc-number">${o.numero_comprobante || `#${String(o.id).padStart(5, '0')}`}</div>
                         </div>
                     </div>
 
@@ -3401,7 +3423,7 @@ async function printThermalTicket(saleId) {
                     </div>
                     <div class="a4-comprobante-box">
                         <h3>RUC: 10446507309</h3>
-                        <div class="doc-type">${s.tipo_documento === 'Factura' ? 'FACTURA ELECTRÓNICA' : s.tipo_documento === 'Boleta' ? 'BOLETA ELECTRÓNICA' : 'NOTA DE VENTA'}</div>
+                        <div class="doc-type">${s.tipo_documento === 'Factura' ? 'FACTURA ELECTRÓNICA' : s.tipo_documento === 'Boleta' ? 'BOLETA ELECTRÓNICA' : s.tipo_documento === 'Nota de Servicio' ? 'NOTA DE SERVICIO' : s.tipo_documento === 'Recibo por Honorarios' ? 'RECIBO POR HONORARIOS' : 'NOTA DE VENTA'}</div>
                         <div class="doc-number">${s.numero_documento}</div>
                     </div>
                 </div>
@@ -3452,7 +3474,7 @@ async function printThermalTicket(saleId) {
                 </div>
 
                 <div class="a4-terms-section" style="text-align: center; margin-top: 30px;">
-                    Representación impresa de la ${s.tipo_documento === 'Factura' ? 'Factura Electrónica' : s.tipo_documento === 'Boleta' ? 'Boleta Electrónica' : 'Nota de Venta'}.<br>
+                    Representación impresa de la ${s.tipo_documento === 'Factura' ? 'Factura Electrónica' : s.tipo_documento === 'Boleta' ? 'Boleta Electrónica' : s.tipo_documento === 'Nota de Servicio' ? 'Nota de Servicio' : s.tipo_documento === 'Recibo por Honorarios' ? 'Recibo por Honorarios' : 'Nota de Venta'}.<br>
                     ¡Gracias por su preferencia!
                 </div>
             </div>

@@ -140,8 +140,8 @@ def seed():
     }])
 
     sales = [
-        (id_daniel, 'Boleta', 'B001-00000001', 933.75, 933.75, 0.0, 0.0, 933.75, 933.75, 'Efectivo', (now - timedelta(days=3)).isoformat(), items_json_1),
-        (id_maria, 'Factura', 'F001-00000001', 317.80, 317.80, 57.20, 57.20, 375.00, 375.00, 'Crédito', (now - timedelta(days=2)).isoformat(), items_json_2),
+        (id_daniel, 'Boleta', 'B001-000001', 933.75, 933.75, 0.0, 0.0, 933.75, 933.75, 'Efectivo', (now - timedelta(days=3)).isoformat(), items_json_1),
+        (id_maria, 'Factura', 'F001-000001', 317.80, 317.80, 57.20, 57.20, 375.00, 375.00, 'Crédito', (now - timedelta(days=2)).isoformat(), items_json_2),
     ]
     cursor.executemany(
         """
@@ -155,7 +155,7 @@ def seed():
 
     # Client Credit for the credit sale
     credits_cli = [
-        (id_maria, 2, 375.0, 375.0, 375.0, 375.0, 500.0, 1875.0, 'Crédito por venta del documento F001-00000001.', 'Pendiente')
+        (id_maria, 2, 375.0, 375.0, 375.0, 375.0, 500.0, 1875.0, 'Crédito por venta del documento F001-000001.', 'Pendiente')
     ]
     cursor.executemany(
         """

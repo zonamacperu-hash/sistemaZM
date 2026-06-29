@@ -694,7 +694,7 @@ async function createOrder(db, data) {
 }
 
 async function updateOrderStatus(db, id, data) {
-  const current = await db.prepare("SELECT estado, repuesto_id, repuesto_cantidad FROM ordenes_servicio WHERE id = ?").bind(id).first();
+  const current = await db.prepare("SELECT estado, repuesto_id, repuesto_cantidad, tipo_comprobante, numero_comprobante FROM ordenes_servicio WHERE id = ?").bind(id).first();
   if (!current) return { success: false, error: "Orden no encontrada" };
 
   const prev_state = current.estado;
@@ -739,6 +739,26 @@ async function updateOrderStatus(db, id, data) {
   if (new_state === 'Entregado') {
     updateQuery += ", fecha_entrega = ?";
     params.push(now);
+    
+    const tipo_comprobante = data.tipo_comprobante || 'Nota de Servicio';
+    let numero_comprobante = '';
+    
+    if (current && current.tipo_comprobante === tipo_comprobante && current.numero_comprobante) {
+      numero_comprobante = current.numero_comprobante;
+    } else {
+      let prefix = 'NS01';
+      if (tipo_comprobante === 'Factura') prefix = 'F001';
+      else if (tipo_comprobante === 'Boleta') prefix = 'B001';
+      
+      const countVentas = await db.prepare("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?").bind(tipo_comprobante).first();
+      const countOrdenes = await db.prepare("SELECT COUNT(*) as count FROM ordenes_servicio WHERE tipo_comprobante = ? AND id != ?").bind(tipo_comprobante, id).first();
+      const totalCount = (countVentas ? countVentas.count : 0) + (countOrdenes ? countOrdenes.count : 0);
+      numero_comprobante = `${prefix}-${String(totalCount + 1).padStart(6, '0')}`;
+    }
+    
+    updateQuery += ", tipo_comprobante = ?, numero_comprobante = ?";
+    params.push(tipo_comprobante);
+    params.push(numero_comprobante);
   }
 
   updateQuery += " WHERE id = ?";
@@ -1261,10 +1281,12 @@ async function createVenta(db, data) {
   if (tipo_doc === 'Factura') prefix = 'F001';
   else if (tipo_doc === 'Boleta') prefix = 'B001';
   else if (tipo_doc === 'Recibo por Honorarios') prefix = 'R001';
+  else if (tipo_doc === 'Nota de Servicio') prefix = 'NS01';
 
-  const countRes = await db.prepare("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?").bind(tipo_doc).first();
-  const countVal = countRes ? countRes.count : 0;
-  const doc_number = `${prefix}-${String(countVal + 1).padStart(8, '0')}`;
+  const countVentas = await db.prepare("SELECT COUNT(*) as count FROM ventas WHERE tipo_documento = ?").bind(tipo_doc).first();
+  const countOrdenes = await db.prepare("SELECT COUNT(*) as count FROM ordenes_servicio WHERE tipo_comprobante = ?").bind(tipo_doc).first();
+  const countVal = (countVentas ? countVentas.count : 0) + (countOrdenes ? countOrdenes.count : 0);
+  const doc_number = `${prefix}-${String(countVal + 1).padStart(6, '0')}`;
 
   let total_usd = 0.0;
   let total_pen = 0.0;
